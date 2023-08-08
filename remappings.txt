@@ -2,3 +2,4 @@
 forge-std/=lib/forge-std/src/
 safe-contracts/=lib/safe-contracts/
 @gelatonetwork/relay-context/=lib/relay-context-contracts/
+@openzeppelin/=lib/openzeppelin-contracts/
