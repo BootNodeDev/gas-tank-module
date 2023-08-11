@@ -128,12 +128,13 @@ contract GasTank is SignatureDecoder, GelatoRelayContextERC2771 {
 
     function getFeesFromDelegate(address _feeToken, uint256 _relayerFee, bytes memory _feeSignature) internal {
         address delegate = _getMsgSender();
+
         (address safe, address token, uint256 maxAmount, bytes memory signature) =
             abi.decode(_feeSignature, (address, address, uint256, bytes));
 
         if (!delegates[safe].contains(delegate)) revert GasTank__getFeesFromDelegate_invalidDelegate();
 
-        uint16 currentIndex = delegatesCurrentIndex[msg.sender][delegate];
+        uint16 currentIndex = delegatesCurrentIndex[safe][delegate];
         if (!tokens[safe][delegate][currentIndex].contains(token)) revert GasTank__getFeesFromDelegate_tokenNotAllowed();
 
         if (token != _feeToken) revert GasTank__getFeesFromDelegate_wrongFeeToken();
@@ -141,7 +142,7 @@ contract GasTank is SignatureDecoder, GelatoRelayContextERC2771 {
 
         // Get current state
         bytes memory transferHashData = generateTransferHashData(
-            address(safe), _feeToken, address(this), _relayerFee, delegateNonces[safe][delegate]
+            address(safe), _feeToken, address(this), maxAmount, delegateNonces[safe][delegate]
         );
 
         delegateNonces[safe][delegate] += 1;
