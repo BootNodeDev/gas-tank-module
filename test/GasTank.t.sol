@@ -26,7 +26,7 @@ interface IGelatoRelayERC2771 {
         uint256 userDeadline;
     }
 
-    function userNonce(address user) external view returns(uint256);
+    function userNonce(address user) external view returns (uint256);
 
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 
@@ -36,10 +36,13 @@ interface IGelatoRelayERC2771 {
         bytes calldata _userSignature,
         bool _isRelayContext,
         bytes32 _correlationId
-    ) external;
+    )
+        external;
 }
 
 contract GasTankTest is PRBTest, StdCheats {
+    using EnumerableSet for EnumerableSet.AddressSet;
+
     GasTank internal gasTank;
 
     address public GELATO = 0x3CACa7b48D0573D793d3b0279b5F0029180E83b6;
@@ -61,24 +64,26 @@ contract GasTankTest is PRBTest, StdCheats {
     IGelatoRelayERC2771 public gelatoRelay = IGelatoRelayERC2771(0xBf175FCC7086b4f9bd59d5EAE8eA67b8f940DE0d);
 
     uint256 public constant USDC_UNIT = 10 ** 6;
-    uint256 constant USDC_FEE = 100000;
-    uint256 constant DAI_FEE = 100000000000000000;
+    uint256 constant USDC_FEE = 100_000;
+    uint256 constant DAI_FEE = 100_000_000_000_000_000;
 
     // Safe 1.4.1
     address public gnosisSafeTemplate = 0x41675C099F32341bf84BFc5382aF534df5C7461a; // G:9134480, M:17487000
     address public compatibilityFallbackHandler = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99; // G:9134477, M:17486892
-    SafeProxyFactory public gnosisSafeProxyFactory = SafeProxyFactory(0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67); // G:8681525, M:17440707
+    SafeProxyFactory public gnosisSafeProxyFactory = SafeProxyFactory(0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67); // G:8681525,
+        // M:17440707
 
     address public safeProxy;
     Safe public theSafe;
 
-    bytes32 public constant CALL_WITH_SYNC_FEE_ERC2771_TYPEHASH =
-        keccak256(
-            bytes(
-                // solhint-disable-next-line max-line-length
-                "CallWithSyncFeeERC2771(uint256 chainId,address target,bytes data,address user,uint256 userNonce,uint256 userDeadline)"
-            )
-        );
+    bytes32 public constant CALL_WITH_SYNC_FEE_ERC2771_TYPEHASH = keccak256(
+        bytes(
+            // solhint-disable-next-line max-line-length
+            "CallWithSyncFeeERC2771(uint256 chainId,address target,bytes data,address user,uint256 userNonce,uint256 userDeadline)"
+        )
+    );
+
+    mapping(address delegate => EnumerableSet.AddressSet[]) internal tokens;
 
     function getSignature(bytes memory toSign, uint256 key) public pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 _s) = vm.sign(key, ECDSA.toEthSignedMessageHash(toSign));
@@ -132,27 +137,17 @@ contract GasTankTest is PRBTest, StdCheats {
             theSafe.nonce()
         );
 
-
         (uint8 v, bytes32 r, bytes32 _s) = vm.sign(kakarotoKey, txHash);
 
         theSafe.execTransaction(
-            safeProxy,
-            0,
-            payload,
-            Enum.Operation.Call,
-            0,
-            0,
-            0,
-            address(0),
-            payable(0),
-            abi.encodePacked(r, _s, v)
+            safeProxy, 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, _s, v)
         );
 
         // fund safe with some Goerli USDC, ETH or any other token Gelato accepts as Fee token
-        deal(USDC, kakaroto, 10000 ether, true);
-        deal(USDC, safeProxy, 10000 ether, true);
-        deal(DAI, kakaroto, 10000 ether, true);
-        deal(DAI, safeProxy, 10000 ether, true);
+        deal(USDC, kakaroto, 10_000 ether, true);
+        deal(USDC, safeProxy, 10_000 ether, true);
+        deal(DAI, kakaroto, 10_000 ether, true);
+        deal(DAI, safeProxy, 10_000 ether, true);
     }
 
     function test_execTransaction_should_work() external {
@@ -166,25 +161,15 @@ contract GasTankTest is PRBTest, StdCheats {
 
         // owner signs fee approval
         bytes32 feeTxHash = gasTank.generateTransferHash(
-            safeProxy,
-            DAI,
-            address(gasTank),
-            2,
-            address(0),
-            0,
-            gasTank.ownerNonces(kakaroto, safeProxy)
+            safeProxy, DAI, address(gasTank), 2, gasTank.ownerNonces(safeProxy, kakaroto)
         );
         (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
         bytes memory ownerFeeSig = abi.encodePacked(fee_r, fee_s, fee_v);
         bytes memory feeSignature = abi.encode(DAI, 2, ownerFeeSig);
 
         // build Gelato transaction
-        bytes memory gasTankData = abi.encodeWithSelector(GasTank.execTransaction.selector,
-            true,
-            safeProxy,
-            safePayload,
-            feeSignature
-        );
+        bytes memory gasTankData =
+            abi.encodeWithSelector(GasTank.execTransaction.selector, true, safeProxy, safePayload, feeSignature);
         bytes memory gelatoData = getGeletoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
 
         // execute
@@ -197,7 +182,7 @@ contract GasTankTest is PRBTest, StdCheats {
         assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
     }
 
-    function getSafePayload() internal view returns(bytes memory) {
+    function getSafePayload() internal view returns (bytes memory) {
         // owner sings safe transaction
         bytes memory erc20TransferPayload = abi.encodeWithSelector(ERC20.transfer.selector, vegeta, 10);
         bytes32 txHash = theSafe.getTransactionHash(
@@ -233,14 +218,19 @@ contract GasTankTest is PRBTest, StdCheats {
         );
     }
 
-    function getGeletoData(bytes memory gtData, uint256 fee, address payToken, address sender, uint256 senderKey) internal view returns (bytes memory) {
+    function getGeletoData(
+        bytes memory gtData,
+        uint256 fee,
+        address payToken,
+        address sender,
+        uint256 senderKey
+    )
+        internal
+        view
+        returns (bytes memory)
+    {
         IGelatoRelayERC2771.CallWithERC2771 memory call = IGelatoRelayERC2771.CallWithERC2771(
-            block.chainid,
-            address(gasTank),
-            gtData,
-            sender,
-            gelatoRelay.userNonce(sender),
-            0
+            block.chainid, address(gasTank), gtData, sender, gelatoRelay.userNonce(sender), 0
         );
 
         bytes32 digest = keccak256(
@@ -265,12 +255,7 @@ contract GasTankTest is PRBTest, StdCheats {
         bytes memory senderSig = abi.encodePacked(r, s, v);
 
         bytes memory data = abi.encodeWithSelector(
-            IGelatoRelayERC2771.callWithSyncFeeERC2771.selector,
-            call,
-            payToken,
-            senderSig,
-            true,
-            bytes32(0)
+            IGelatoRelayERC2771.callWithSyncFeeERC2771.selector, call, payToken, senderSig, true, bytes32(0)
         );
 
         return abi.encodePacked(data, feeCollector, payToken, fee);
