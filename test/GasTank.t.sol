@@ -98,13 +98,16 @@ contract GasTankTest is PRBTest, StdCheats {
     }
 
     function deploySafe(address[] memory owners, uint256 threshold) internal returns(address) {
+        // it enables the GasTank as module during creation of the Safe
+        bytes memory moduleInitializer = abi.encodeWithSelector(GasTank.enableMyself.selector);
+
         // configure safe owners and threshold
         bytes memory initializer = abi.encodeWithSelector(
             Safe.setup.selector,
             owners,
             threshold,
-            address(0),
-            new bytes(0),
+            address(gasTank),
+            moduleInitializer,
             compatibilityFallbackHandler,
             address(0),
             0,
@@ -141,6 +144,7 @@ contract GasTankTest is PRBTest, StdCheats {
         );
     }
 
+    // this could be used for enabling the module on a safe that is already created
     function enableModule(address module, Safe safe, uint256 signerKey) internal {
         // set gastTank as SafeModule
         bytes memory payload = abi.encodeWithSelector(ModuleManager.enableModule.selector, module);
@@ -169,7 +173,8 @@ contract GasTankTest is PRBTest, StdCheats {
         theSafe = Safe(payable(safeProxy));
 
         // set gastTank as SafeModule
-        enableModule(address(gasTank), theSafe, kakarotoKey);
+        // enableModule(address(gasTank), theSafe, kakarotoKey);
+        assertTrue(theSafe.isModuleEnabled(address(gasTank)));
 
         owners[0] = vegeta;
 
@@ -179,7 +184,7 @@ contract GasTankTest is PRBTest, StdCheats {
 
 
         // set gastTank as SafeModule
-        enableModule(address(gasTank), theSafeExternalGT, vegetaKey);
+        // enableModule(address(gasTank), theSafeExternalGT, vegetaKey);
 
         address[] memory allowedTokens = new address[](1);
         allowedTokens[0] = DAI;

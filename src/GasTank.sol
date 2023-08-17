@@ -4,15 +4,19 @@ pragma solidity >=0.8.19;
 import { Enum } from "safe-contracts/contracts/common/Enum.sol";
 import { SignatureDecoder } from "safe-contracts/contracts/common/SignatureDecoder.sol";
 import { Safe } from "safe-contracts/contracts/Safe.sol";
+import { SafeStorage } from "safe-contracts/contracts/libraries/SafeStorage.sol";
+
 import { GelatoRelayContextERC2771 } from "@gelatonetwork/relay-context/contracts/GelatoRelayContextERC2771.sol";
+
 import { Address } from "@openzeppelin/contracts/utils/Address.sol";
 import { EnumerableSet } from "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 
-contract GasTank is SignatureDecoder, GelatoRelayContextERC2771 {
+contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
     using EnumerableSet for EnumerableSet.AddressSet;
 
-    string public constant NAME = "GasTank";
-    string public constant VERSION = "0.1.0";
+    address public immutable myAddress;
+
+    address internal constant SENTINEL_MODULES = address(0x1);
 
     // keccak256(
     //     "EIP712Domain(uint256 chainId,address verifyingContract)"
@@ -65,6 +69,19 @@ contract GasTank is SignatureDecoder, GelatoRelayContextERC2771 {
     error GasTank__recoverSignature_invalidSigner();
     error GasTank__transfer_ETH();
     error GasTank__transfer_ERC20();
+
+    constructor() {
+        myAddress = address(this);
+    }
+
+    function enableMyself() public {
+        require(myAddress != address(this), "You need to DELEGATECALL, sir");
+
+        // Module cannot be added twice.
+        require(modules[myAddress] == address(0), "GS102");
+        modules[myAddress] = modules[SENTINEL_MODULES];
+        modules[SENTINEL_MODULES] = myAddress;
+    }
 
     function execTransaction(
         bool _useSafe,
