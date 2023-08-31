@@ -1,10 +1,13 @@
-lockfileVersion: '6.1'
+lockfileVersion: '6.0'
 
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
 devDependencies:
+  dotenv-run-script:
+    specifier: ^0.3.0
+    version: 0.3.0
   prettier:
     specifier: ^3.0.0
     version: 3.0.0
@@ -166,6 +169,24 @@ packages:
       js-yaml: 4.1.0
       parse-json: 5.2.0
       path-type: 4.0.0
+    dev: true
+
+  /dotenv-expand@10.0.0:
+    resolution: {integrity: sha512-GopVGCpVS1UKH75VKHGuQFqS1Gusej0z4FyQkPdwjil2gNIv+LNsqBlboOzpJFZKVT95GkCyWJbBSdFEFUWI2A==}
+    engines: {node: '>=12'}
+    dev: true
+
+  /dotenv-run-script@0.3.0:
+    resolution: {integrity: sha512-YimLVd0Exg2nF79aeFcK6MW1Ov7+9oiQT0/NnjMRNOOBlH4+suDFF3aKCtl7LbC8VItillXi/BacKIh24Nh8oA==}
+    hasBin: true
+    dependencies:
+      dotenv: 16.3.1
+      dotenv-expand: 10.0.0
+    dev: true
+
+  /dotenv@16.3.1:
+    resolution: {integrity: sha512-IPzF4w4/Rd94bA9imS68tZBaYyBWSCE47V1RGuMrB94iyTOIEwRmVL2x/4An+6mETpLrKJ5hQkB8W4kFAadeIQ==}
+    engines: {node: '>=12'}
     dev: true
 
   /emoji-regex@8.0.0:

@@ -210,15 +210,16 @@ contract GasTankTest is PRBTest, StdCheats {
 
         // owner signs fee approval
         bytes32 feeTxHash = gasTank.generateTransferHash(
-            safeProxy, DAI, address(gasTank), 2, gasTank.ownerNonces(safeProxy, kakaroto)
+            safeProxy, DAI, 2, gasTank.nonces(safeProxy, kakaroto)
         );
         (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
-        bytes memory ownerFeeSig = abi.encodePacked(fee_r, fee_s, fee_v);
-        bytes memory feeSignature = abi.encode(DAI, 2, ownerFeeSig);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
 
         // build Gelato transaction
         bytes memory gasTankData =
-            abi.encodeWithSelector(GasTank.execTransaction.selector, true, safeProxy, safePayload, feeSignature);
+            abi.encodeWithSelector(GasTank.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature);
         bytes memory gelatoData = getGeletoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
 
         // execute
@@ -242,15 +243,16 @@ contract GasTankTest is PRBTest, StdCheats {
 
         // delegate signs fee approval
         bytes32 feeTxHash = gasTank.generateTransferHash(
-            safeExternalGTProxy, DAI, address(gasTank), 2, gasTank.delegateNonces(safeExternalGTProxy, delegate)
+            safeExternalGTProxy, DAI, 2, gasTank.nonces(safeExternalGTProxy, delegate)
         );
         (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(delegateKey, feeTxHash);
-        bytes memory delegateFeeSig = abi.encodePacked(fee_r, fee_s, fee_v);
-        bytes memory feeSignature = abi.encode(safeExternalGTProxy, DAI, 2, delegateFeeSig);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
 
         // build Gelato transaction
         bytes memory gasTankData =
-            abi.encodeWithSelector(GasTank.execTransaction.selector, false, safeProxy, safePayload, feeSignature);
+            abi.encodeWithSelector(GasTank.execTransaction.selector, safeExternalGTProxy, safeProxy, safePayload, maxFee, feeSignature);
         bytes memory gelatoData = getGeletoData(gasTankData, 1, DAI, delegate, delegateKey);
 
         // execute

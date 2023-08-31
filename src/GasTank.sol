@@ -30,14 +30,14 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
     bytes32 public constant ALLOWANCE_TRANSFER_TYPEHASH =
         0xe6c1e62ea9344786169d5b9c56c470d5e3500a1f1813b5e8578dfffff4f4a8ed;
 
-    mapping(address safe => mapping(address owner => uint16 nonce)) public ownerNonces;
+    mapping(address gasTank => mapping(address signer => uint16 nonce)) public nonces;
 
-    mapping(address safe => EnumerableSet.AddressSet) internal delegates;
-    mapping(address safe => mapping(address delegate => uint16 nonce)) public delegateNonces;
+    mapping(address gasTank => EnumerableSet.AddressSet) internal delegates;
+    mapping(address delegate => EnumerableSet.AddressSet) internal delegatedGasTanks;
 
     // index 0 is used for no when delegate is not a real delegate
-    mapping(address safe => mapping(address delegate => mapping(uint16 index => EnumerableSet.AddressSet))) internal tokens;
-    mapping(address safe => mapping(address delegate => uint16 index)) internal delegatesCurrentIndex;
+    mapping(address gasTank => mapping(address delegate => mapping(uint16 index => EnumerableSet.AddressSet))) internal tokens;
+    mapping(address gasTank => mapping(address delegate => uint16 index)) internal delegatesCurrentIndex;
 
     event AddDelegate(address indexed safe, address delegate);
     event RemoveDelegate(address indexed safe, address delegate);
@@ -46,13 +46,9 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
     event GetFeesFromOwner(address indexed safe, address indexed owner, address token, uint256 relayerFee);
     event GetFeesFromDelegate(address indexed safe, address indexed delegate, address token, uint256 relayerFee);
 
-    error GasTank__getFeesFromSafe_wrongFeeToken();
-    error GasTank__getFeesFromSafe_wrongRelayerFee();
-    error GasTank__getFeesFromSafe_invalidSignature();
-    error GasTank__getFeesFromSafe_invalidSigner();
-    error GasTank__getFeesFromSafe_notOwner();
-    error GasTank__getFeesFromDelegate_wrongFeeToken();
-    error GasTank__getFeesFromDelegate_wrongRelayerFee();
+    error GasTank__getFee_notOwnerOrDelegate();
+    error GasTank__getFee_maxFee();
+    error GasTank__getFees_invalidSigner();
     error GasTank__addDelegate_invalidDelegate();
     error GasTank__removeDelegate_invalidDelegate();
     error GasTank__addDelegate_alreadyDelegate();
@@ -84,97 +80,57 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
     }
 
     function execTransaction(
-        bool _useSafe,
+        address _gasTank,
         address _safe,
         bytes memory _txData,
+        uint256 _maxFee,
         bytes memory _feeSignature
     ) public onlyGelatoRelayERC2771 returns (bool success) {
-        address feeToken = _getFeeToken();
-        uint256 relayerFee = _getFee();
-
-        // validate fee using signature/delegate/owner
-        if (_useSafe) {
-            getFeesFromOwner(feeToken, relayerFee, _safe, _feeSignature);
-        } else {
-            getFeesFromDelegate(feeToken, relayerFee, _feeSignature);
-        }
+        _payFee(_gasTank, _maxFee, _feeSignature);
 
         bool returnData = abi.decode(Address.functionCall(_safe, _txData), (bool));
-
-        // Payment to Gelato
-        if (returnData) _transferRelayFee();
 
         return returnData;
     }
 
-    function getFeesFromOwner(
-        address _feeToken,
-        uint256 _relayerFee,
-        address _safe,
-        bytes memory _feeSignature
-    )
-        internal
-    {
-        address owner = _getMsgSender();
-        (address token, uint256 maxAmount, bytes memory signature) =
-            abi.decode(_feeSignature, (address, uint256, bytes));
+    function _payFee(address _gasTank, uint256 _maxFee, bytes memory _feeSignature) internal {
+        address feeToken = _getFeeToken();
+        uint256 relayerFee = _getFee();
 
-        if (token != _feeToken) revert GasTank__getFeesFromSafe_wrongFeeToken();
-        if (maxAmount < _relayerFee) revert GasTank__getFeesFromSafe_wrongRelayerFee();
-
-        // Get current state
-        uint16 ownerNonce = ownerNonces[_safe][owner];
+        address sender = _getMsgSender();
+        uint16 signerNonce = nonces[_gasTank][sender];
         bytes memory transferHashData =
-            generateTransferHashData(address(_safe), _feeToken, address(this), maxAmount, ownerNonce);
+            generateTransferHashData(address(_gasTank), feeToken, _maxFee, signerNonce);
 
-        // Update state
-        ownerNonces[_safe][owner] = ownerNonce + 1;
+        // Update nonce
+        nonces[_gasTank][sender] += 1;
 
-        // Perform external interactions
         // Check signature
-        address signer = recoverSignature(signature, transferHashData);
+        address signer = recoverSignature(_feeSignature, transferHashData);
+        if (sender != signer) revert GasTank__getFees_invalidSigner();
 
-        if (owner != signer) revert GasTank__getFeesFromSafe_invalidSigner();
-        if (!Safe(payable(_safe)).isOwner(owner)) revert GasTank__getFeesFromSafe_notOwner();
+        // check signer is owner or delegate
+        if (!isOwnerOrDelegate(_gasTank, signer, feeToken)) revert GasTank__getFee_notOwnerOrDelegate();
+        if (relayerFee > _maxFee) revert GasTank__getFee_maxFee();
 
-        // Transfer token
-        transfer(Safe(payable(_safe)), _feeToken, payable(address(this)), _relayerFee);
+        // Transfer fee from safe to this contract
+        transfer(Safe(payable(_gasTank)), feeToken, payable(address(this)), relayerFee);
 
-        emit GetFeesFromOwner(_safe, owner, token, _relayerFee);
+        // Payment to Gelato
+        _transferRelayFee();
     }
 
-    function getFeesFromDelegate(address _feeToken, uint256 _relayerFee, bytes memory _feeSignature) internal {
-        address delegate = _getMsgSender();
+    function isOwnerOrDelegate(address _gasTank, address _signer, address _feeToken) internal view returns(bool) {
+        if (Safe(payable(_gasTank)).isOwner(_signer)) {
+            return true;
+        }
 
-        (address safe, address token, uint256 maxAmount, bytes memory signature) =
-            abi.decode(_feeSignature, (address, address, uint256, bytes));
+        uint16 currentIndex = delegatesCurrentIndex[_gasTank][_signer];
+        if (delegates[_gasTank].contains(_signer) && tokens[_gasTank][_signer][currentIndex].contains(_feeToken)) {
+            return true;
+        }
 
-        if (!delegates[safe].contains(delegate)) revert GasTank__getFeesFromDelegate_invalidDelegate();
-
-        uint16 currentIndex = delegatesCurrentIndex[safe][delegate];
-        if (!tokens[safe][delegate][currentIndex].contains(token)) revert GasTank__getFeesFromDelegate_tokenNotAllowed();
-
-        if (token != _feeToken) revert GasTank__getFeesFromDelegate_wrongFeeToken();
-        if (maxAmount < _relayerFee) revert GasTank__getFeesFromDelegate_wrongRelayerFee();
-
-        // Get current state
-        bytes memory transferHashData = generateTransferHashData(
-            address(safe), _feeToken, address(this), maxAmount, delegateNonces[safe][delegate]
-        );
-
-        delegateNonces[safe][delegate] += 1;
-
-        // Perform external interactions
-        // Check signature
-        address signer = recoverSignature(signature, transferHashData);
-
-        if (delegate != signer) revert GasTank__getFeesFromDelegate_invalidSigner();
-        if (!delegates[safe].contains(delegate)) revert GasTank__getFeesFromDelegate_notDelegate();
-
-        // Transfer token
-        transfer(Safe(payable(safe)), _feeToken, payable(address(this)), _relayerFee);
-
-        emit GetFeesFromDelegate(safe, delegate, token, _relayerFee);
+        return false;
     }
 
     /// @dev Allows to add a delegate.
@@ -184,6 +140,7 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
         if (delegates[msg.sender].contains(delegate)) revert GasTank__addDelegate_alreadyDelegate();
 
         delegates[msg.sender].add(delegate);
+        delegatedGasTanks[delegate].add(msg.sender);
         delegatesCurrentIndex[msg.sender][delegate] += 1;
 
         emit AddDelegate(msg.sender, delegate);
@@ -194,13 +151,18 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
     function removeDelegate(address delegate) public {
         if (delegate == address(0)) revert GasTank__removeDelegate_invalidDelegate();
 
-        delegates[msg.sender].add(delegate);
+        delegates[msg.sender].remove(delegate);
+        delegatedGasTanks[delegate].remove(msg.sender);
 
         emit RemoveDelegate(msg.sender, delegate);
     }
 
     function getDelegates(address safe) public view returns (address[] memory) {
         return delegates[safe].values();
+    }
+
+    function getDelegatedSafes(address delegate) public view returns (address[] memory) {
+        return delegatedGasTanks[delegate].values();
     }
 
     function isDelegates(address safe, address delegate) public view returns (bool) {
@@ -227,7 +189,7 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
 
         uint16 currentIndex = delegatesCurrentIndex[msg.sender][delegate];
 
-        tokens[msg.sender][delegate][currentIndex].add(token);
+        tokens[msg.sender][delegate][currentIndex].remove(token);
 
         emit RemoveTokenAllowance(msg.sender, delegate, token);
     }
@@ -248,7 +210,6 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
     function generateTransferHashData(
         address safe,
         address token,
-        address to,
         uint256 amount,
         uint16 nonce
     )
@@ -259,7 +220,7 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
         uint256 chainId = getChainId();
         bytes32 domainSeparator = keccak256(abi.encode(DOMAIN_SEPARATOR_TYPEHASH, chainId, this));
         bytes32 transferHash =
-            keccak256(abi.encode(ALLOWANCE_TRANSFER_TYPEHASH, safe, token, to, amount, nonce));
+            keccak256(abi.encode(ALLOWANCE_TRANSFER_TYPEHASH, safe, token, address(this), amount, nonce));
         return abi.encodePacked(bytes1(0x19), bytes1(0x01), domainSeparator, transferHash);
     }
 
@@ -267,11 +228,10 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
     function generateTransferHash(
         address safe,
         address token,
-        address to,
         uint96 amount,
         uint16 nonce
     ) public view returns (bytes32) {
-        return keccak256(generateTransferHashData(safe, token, to, amount, nonce));
+        return keccak256(generateTransferHashData(safe, token, amount, nonce));
     }
 
     // We use the same format as used for the Safe contract, except that we only support exactly 1 signature and no
