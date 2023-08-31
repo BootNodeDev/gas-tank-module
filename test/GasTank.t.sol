@@ -62,7 +62,7 @@ contract GasTankTest is PRBTest, StdCheats {
     uint256 public feeCollectorKey = 6;
     address public feeCollector = vm.addr(feeCollectorKey);
 
-    IGelatoRelayERC2771 public gelatoRelay = IGelatoRelayERC2771(0xBf175FCC7086b4f9bd59d5EAE8eA67b8f940DE0d);
+    IGelatoRelayERC2771 public gelatoRelay = IGelatoRelayERC2771(0xb539068872230f20456CF38EC52EF2f91AF4AE49);
 
     uint256 public constant USDC_UNIT = 10 ** 6;
     uint256 constant USDC_FEE = 100_000;
