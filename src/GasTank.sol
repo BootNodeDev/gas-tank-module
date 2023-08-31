@@ -25,10 +25,10 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
         0x47e79534a245952e8b16893a336b85a3d9ea9fa8c573f3d803afb92a79469218;
 
     // keccak256(
-    //     "AllowanceTransfer(address safe,address feeToken,uint96 relayFee,uint16 nonce)"
+    //     "AllowanceTransfer(address safe,address token,uint256 amount,uint16 nonce)"
     // );
     bytes32 public constant ALLOWANCE_TRANSFER_TYPEHASH =
-        0xe6c1e62ea9344786169d5b9c56c470d5e3500a1f1813b5e8578dfffff4f4a8ed;
+        0x4dd1b7a6ebcbe5bda29f795e91a51fe9556ef167114f25e583872a60fa8a4886;
 
     mapping(address gasTank => mapping(address signer => uint16 nonce)) public nonces;
 
@@ -218,9 +218,9 @@ contract GasTank is SafeStorage, SignatureDecoder, GelatoRelayContextERC2771 {
         returns (bytes memory)
     {
         uint256 chainId = getChainId();
-        bytes32 domainSeparator = keccak256(abi.encode(DOMAIN_SEPARATOR_TYPEHASH, chainId, this));
+        bytes32 domainSeparator = keccak256(abi.encode(DOMAIN_SEPARATOR_TYPEHASH, chainId, address(this)));
         bytes32 transferHash =
-            keccak256(abi.encode(ALLOWANCE_TRANSFER_TYPEHASH, safe, token, address(this), amount, nonce));
+            keccak256(abi.encode(ALLOWANCE_TRANSFER_TYPEHASH, safe, token, amount, nonce));
         return abi.encodePacked(bytes1(0x19), bytes1(0x01), domainSeparator, transferHash);
     }
 
