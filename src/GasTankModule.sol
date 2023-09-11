@@ -205,12 +205,12 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         return delegatedGasTanks[delegate].values();
     }
 
-    function isDelegates(address safe, address delegate) public view returns (bool) {
+    function isDelegate(address safe, address delegate) public view returns (bool) {
         return delegates[safe].contains(delegate);
     }
 
     function getTokens(address safe, address delegate) public view returns (address[] memory) {
-        uint16 currentIndex = delegates[msg.sender].contains(delegate) ? delegatesCurrentIndex[safe][delegate] : 0;
+        uint16 currentIndex = delegates[safe].contains(delegate) ? delegatesCurrentIndex[safe][delegate] : 0;
 
         return tokens[safe][delegate][currentIndex].values();
     }
@@ -257,6 +257,7 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
 
         if (treasury != address(0) && adminFeePercentage > 0) {
             adminFeeAmount = (relayerFee * adminFeePercentage) / DENOMINATOR;
+            totalFee += adminFeeAmount;
         }
 
         if (totalFee > _maxFee) revert GasTankModule__getFee_maxFee();

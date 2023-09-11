@@ -63,6 +63,9 @@ contract GasTankModuleTest is PRBTest, StdCheats {
     uint256 public feeCollectorKey = 6;
     address public feeCollector = vm.addr(feeCollectorKey);
 
+    uint256 public adminKey = 7;
+    address public admin = vm.addr(adminKey);
+
     IGelatoRelayERC2771 public gelatoRelay = IGelatoRelayERC2771(0xb539068872230f20456CF38EC52EF2f91AF4AE49);
 
     uint256 public constant USDC_UNIT = 10 ** 6;
@@ -87,6 +90,8 @@ contract GasTankModuleTest is PRBTest, StdCheats {
             "CallWithSyncFeeERC2771(uint256 chainId,address target,bytes data,address user,uint256 userNonce,uint256 userDeadline)"
         )
     );
+
+    event ExecutionFailure(bytes32 indexed txHash, uint256 payment);
 
     function getSignature(bytes memory toSign, uint256 key) public pure returns (bytes memory) {
         (uint8 v, bytes32 r, bytes32 _s) = vm.sign(key, ECDSA.toEthSignedMessageHash(toSign));
@@ -137,10 +142,10 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         );
     }
 
-    function execTransaction(Safe safe, address to, bytes memory payload, uint256 signerKey) internal {
+    function execTransaction(Safe safe, address to, bytes memory payload, uint256 signerKey) internal returns (bool success) {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerKey, getTransactionHash(safe, to, payload));
 
-        safe.execTransaction(
+        return safe.execTransaction(
             to, 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
         );
     }
@@ -152,17 +157,8 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         execTransaction(safe, address(safe), payload, signerKey);
     }
 
-    function setDelegateAndTokens(Safe safe, uint256 signerKey, address eldelegate, address[] memory tokens) internal {
-        bytes memory payload = abi.encodeWithSelector(GasTankModule.addDelegate.selector, eldelegate);
-        execTransaction(safe, address(gasTankModule), payload, signerKey);
-
-        for (uint256 i = 0; i < tokens.length; i++) {
-            payload = abi.encodeWithSelector(GasTankModule.addTokenAllowance.selector, eldelegate, tokens[i]);
-            execTransaction(safe, address(gasTankModule), payload, signerKey);
-        }
-    }
-
     function setUp() public virtual {
+        vm.prank(admin);
         gasTankModule = new GasTankModule();
 
         address[] memory owners = new address[](2);
@@ -205,6 +201,28 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         deal(DAI, safeExternalGTProxy, 10_000 ether, true);
     }
 
+    // TODO - implement
+    function test_DOMAIN_SEPARATOR() external view {
+        gasTankModule.DOMAIN_SEPARATOR();
+    }
+    function test_enableMyself_notDELEGATECALL() external{}
+    function test_enableMyself_GS102() external{}
+    function test_setTreasury_onlyOwner() external {
+        vm.prank(vegeta);
+        vm.expectRevert("Ownable: caller is not the owner");
+        gasTankModule.setTreasury(payable(vegeta));
+    }
+    function test_setAdminFeePercentage_onlyOwner() external {
+        vm.prank(vegeta);
+        vm.expectRevert("Ownable: caller is not the owner");
+        gasTankModule.setAdminFeePercentage(1000);
+    }
+    function test_setAdminFeePercentage_invalidPercentage() external {
+        vm.prank(admin);
+        vm.expectRevert(GasTankModule.GasTankModule__setAdminFeePercentage_invalidPercentage.selector);
+        gasTankModule.setAdminFeePercentage(100_001);
+    }
+
     function test_execTransaction_from_owner_paying_fee_with_ERC20_should_work() external {
         uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
         uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
@@ -226,7 +244,7 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         bytes memory gasTankData = abi.encodeWithSelector(
             GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
         );
-        bytes memory gelatoData = getGeletoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
 
         // execute
         vm.prank(GELATO);
@@ -260,7 +278,7 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         bytes memory gasTankData = abi.encodeWithSelector(
             GasTankModule.execTransaction.selector, safeExternalGTProxy, safeProxy, safePayload, maxFee, feeSignature
         );
-        bytes memory gelatoData = getGeletoData(gasTankData, 1, DAI, delegate, delegateKey);
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, delegate, delegateKey);
 
         // execute
         vm.prank(GELATO);
@@ -293,7 +311,7 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         bytes memory gasTankData = abi.encodeWithSelector(
             GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
         );
-        bytes memory gelatoData = getGeletoData(gasTankData, 1, EL_DIEGO, kakaroto, kakarotoKey);
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, EL_DIEGO, kakaroto, kakarotoKey);
 
         // execute
         vm.prank(GELATO);
@@ -327,7 +345,7 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         bytes memory gasTankData = abi.encodeWithSelector(
             GasTankModule.execTransaction.selector, safeExternalGTProxy, safeProxy, safePayload, maxFee, feeSignature
         );
-        bytes memory gelatoData = getGeletoData(gasTankData, 1, EL_DIEGO, delegate, delegateKey);
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, EL_DIEGO, delegate, delegateKey);
 
         // execute
         vm.prank(GELATO);
@@ -338,6 +356,555 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         assertEq(safeExternalGTProxy.balance, safeETHBalanceBefore - 1);
         assertEq(feeCollector.balance, feeCollectorETHBalanceBefore + 1);
     }
+
+    // addDelegate
+        // GasTankModule__addDelegate_invalidDelegate
+    function test_addDelegate_invalidDelegate() external {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addDelegate.selector, address(0));
+        bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        vm.prank(kakaroto);
+
+        // Internally it reverts with GasTankModule__addDelegate_invalidDelegate.selector
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
+        // GasTankModule__addDelegate_alreadyDelegate
+    function test_addDelegate_alreadyDelegate() external {
+        addDelegate(delegate, theSafe, kakarotoKey);
+
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addDelegate.selector, delegate);
+        bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        vm.prank(kakaroto);
+
+        // Internally it reverts with GasTankModule__addDelegate_alreadyDelegate
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
+
+        // works
+            // delegate
+            // delegatedGasTank
+            // tokens empty
+    function test_addDelegate_should_work() external {
+        addDelegate(delegate, theSafe, kakarotoKey);
+        addDelegate(vegeta, theSafe, kakarotoKey);
+
+        assertTrue(gasTankModule.isDelegate(safeProxy, delegate), "delegate should be a delegate");
+        assertTrue(gasTankModule.isDelegate(safeProxy, vegeta), "vegeta should be a delegate");
+
+        address[] memory delegates = gasTankModule.getDelegates(safeProxy);
+        assertEq(delegates.length, 2, "should have 2 delegates");
+        assertEq(delegates[0], delegate, "delegate should be the first delegate");
+        assertEq(delegates[1], vegeta, "vegeta should be the second delegate");
+
+        address[] memory delegatedSafes = gasTankModule.getDelegatedSafes(vegeta);
+        assertEq(delegatedSafes.length, 1, "should have 1 delegated safe");
+        assertEq(delegatedSafes[0], safeProxy, "sfe should be the first delegates safe");
+    }
+
+    // removeDelegate
+        // GasTankModule__removeDelegate_invalidDelegate
+    function test_removeDelegate_should_invalidDelegate() external {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.removeDelegate.selector, address(0));
+        bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        vm.prank(kakaroto);
+
+        // Internally it reverts with GasTankModule__removeDelegate_invalidDelegate
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
+        // works
+            // delegate
+            // delegatedGasTank
+            // tokens empty
+    function test_removeDelegate_should_work() external {
+        addDelegate(vegeta, theSafe, kakarotoKey);
+
+        assertTrue(gasTankModule.isDelegate(safeProxy, vegeta), "vegeta should be a delegate");
+
+        address[] memory delegates = gasTankModule.getDelegates(safeProxy);
+        assertEq(delegates.length, 1, "should have 1 delegates");
+        assertEq(delegates[0], vegeta, "vegeta should be the first delegate");
+
+        address[] memory delegatedSafes = gasTankModule.getDelegatedSafes(vegeta);
+        assertEq(delegatedSafes.length, 1, "should have 1 delegated safe");
+        assertEq(delegatedSafes[0], safeProxy, "sfe should be the first delegates safe");
+
+        removeDelegate(vegeta, theSafe, kakarotoKey);
+        assertFalse(gasTankModule.isDelegate(safeProxy, vegeta), "vegeta should not be a delegate");
+
+        delegates = gasTankModule.getDelegates(safeProxy);
+        assertEq(delegates.length, 0, "should have 0 delegates");
+
+        delegatedSafes = gasTankModule.getDelegatedSafes(vegeta);
+        assertEq(delegatedSafes.length, 0, "should have 0 delegated safe");
+    }
+
+    // addTokenAllowance
+        // GasTankModule__setTokenAllowance_invalidDelegate
+    function test_addTokenAllowance_should_invalidDelegate() external {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addTokenAllowance.selector, address(0), USDC);
+        bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        vm.prank(kakaroto);
+
+        // Internally it reverts with GasTankModule__setTokenAllowance_invalidDelegate
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
+        // GasTankModule__setTokenAllowance_notDelegate
+    function test_addTokenAllowance_should_notDelegate() external {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addTokenAllowance.selector, vegeta, USDC);
+        bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        vm.prank(kakaroto);
+
+        // Internally it reverts with GasTankModule__setTokenAllowance_notDelegate
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
+        // works add new token
+    function test_addTokenAllowance_should_work() external {
+        addDelegate(vegeta, theSafe, kakarotoKey);
+        address[] memory tokens = gasTankModule.getTokens(safeProxy, vegeta);
+        assertEq(tokens.length, 0, "should have 0 tokens allowed");
+
+        addTokenAllowance(vegeta, USDC, theSafe, kakarotoKey);
+        addTokenAllowance(vegeta, DAI, theSafe, kakarotoKey);
+
+        tokens = gasTankModule.getTokens(safeProxy, vegeta);
+
+        assertEq(tokens.length, 2, "should have 2 tokens allowed");
+        assertEq(tokens[0], USDC, "USDC should be allowed");
+        assertEq(tokens[1], DAI, "DAI should be allowed");
+    }
+        // works with repeated toke
+    function test_addTokenAllowance_should_work_adding_the_same_token() external {
+        addDelegate(vegeta, theSafe, kakarotoKey);
+        address[] memory tokens = gasTankModule.getTokens(safeProxy, vegeta);
+        assertEq(tokens.length, 0, "should have 0 tokens allowed");
+
+        addTokenAllowance(vegeta, USDC, theSafe, kakarotoKey);
+        addTokenAllowance(vegeta, DAI, theSafe, kakarotoKey);
+
+        tokens = gasTankModule.getTokens(safeProxy, vegeta);
+
+        assertEq(tokens.length, 2, "should have 2 tokens allowed");
+        assertEq(tokens[0], USDC, "USDC should be allowed");
+        assertEq(tokens[1], DAI, "DAI should be allowed");
+
+        addTokenAllowance(vegeta, USDC, theSafe, kakarotoKey);
+
+        tokens = gasTankModule.getTokens(safeProxy, vegeta);
+
+        assertEq(tokens.length, 2, "should have 2 tokens allowed");
+        assertEq(tokens[0], USDC, "USDC should be allowed");
+        assertEq(tokens[1], DAI, "DAI should be allowed");
+
+    }
+
+    // removeTokenAllowance
+        // GasTankModule__removeTokenAllowance_invalidDelegate
+    function test_removeTokenAllowance_should_invalidDelegate() external {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.removeTokenAllowance.selector, address(0), USDC);
+        bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        vm.prank(kakaroto);
+
+        // Internally it reverts with GasTankModule__removeTokenAllowance_invalidDelegate
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
+        // GasTankModule__removeTokenAllowance_notDelegate
+    function test_removeTokenAllowance_should_notDelegate() external {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addTokenAllowance.selector, vegeta, USDC);
+        bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        vm.prank(kakaroto);
+
+        // Internally it reverts with GasTankModule__removeTokenAllowance_notDelegate
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.Call, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
+        // works remove new token
+    function test_removeTokenAllowance_should_work() external {
+        addDelegate(vegeta, theSafe, kakarotoKey);
+        address[] memory tokens = gasTankModule.getTokens(safeProxy, vegeta);
+        assertEq(tokens.length, 0, "should have 0 tokens allowed");
+
+        addTokenAllowance(vegeta, USDC, theSafe, kakarotoKey);
+        addTokenAllowance(vegeta, DAI, theSafe, kakarotoKey);
+
+        tokens = gasTankModule.getTokens(safeProxy, vegeta);
+
+        assertEq(tokens.length, 2, "should have 0 tokens allowed");
+        assertEq(tokens[0], USDC, "USDC should be allowed");
+        assertEq(tokens[1], DAI, "DAI should be allowed");
+
+        removeTokenAllowance(vegeta, USDC, theSafe, kakarotoKey);
+
+        tokens = gasTankModule.getTokens(safeProxy, vegeta);
+
+        assertEq(tokens.length, 1, "should have 1 tokens allowed");
+        assertEq(tokens[0], DAI, "DAI should be allowed");
+    }
+        // works with not added token
+    function test_removeTokenAllowance_should_work_removing_token_not_added() external {
+        addDelegate(vegeta, theSafe, kakarotoKey);
+        address[] memory tokens = gasTankModule.getTokens(safeProxy, vegeta);
+        assertEq(tokens.length, 0, "should have 0 tokens allowed");
+
+        addTokenAllowance(vegeta, DAI, theSafe, kakarotoKey);
+
+        tokens = gasTankModule.getTokens(safeProxy, vegeta);
+
+        assertEq(tokens.length, 1, "should have 1 tokens allowed");
+        assertEq(tokens[0], DAI, "DAI should be allowed");
+
+        removeTokenAllowance(vegeta, USDC, theSafe, kakarotoKey);
+
+        tokens = gasTankModule.getTokens(safeProxy, vegeta);
+
+        assertEq(tokens.length, 1, "should have 1 tokens allowed");
+        assertEq(tokens[0], DAI, "DAI should be allowed");
+    }
+
+    // getDelegates
+    // getDelegatedSafes
+    // isDelegates
+    // getTokens
+
+    // _payFee
+        // GasTankModule__getFees_invalidSigner
+            // feeToken not the same
+    function test_payFee_invalidSigner_when_signed_feeToken_not_the_same() external {
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, USDC, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        vm.expectRevert("GelatoRelayERC2771.callWithSyncFeeERC2771:NoErrorSelector"); // Gelato is not creating error message from custom errors
+        Address.functionCall(address(gelatoRelay), gelatoData);
+    }
+            // invalidated signature by nonce
+    function test_payFee_invalidSigner_on_replay() external {
+        uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
+        uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
+        uint256 safeDAIBalanceBefore = ERC20(DAI).balanceOf(safeProxy);
+        uint256 feeCollectorDAIBalanceBefore = ERC20(DAI).balanceOf(feeCollector);
+
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        Address.functionCall(address(gelatoRelay), gelatoData);
+
+        assertEq(ERC20(USDC).balanceOf(safeProxy), safeUSDCBalanceBefore - 10);
+        assertEq(ERC20(USDC).balanceOf(vegeta), vegetaUSDCBalanceBefore + 10);
+        assertEq(ERC20(DAI).balanceOf(safeProxy), safeDAIBalanceBefore - 1);
+        assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
+
+        // build new Gelato transaction with same fee signature
+        gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
+
+        // replay
+        vm.prank(GELATO);
+        vm.expectRevert("GelatoRelayERC2771.callWithSyncFeeERC2771:NoErrorSelector"); // Gelato is not creating error message from custom errors
+        Address.functionCall(address(gelatoRelay), gelatoData);
+    }
+
+        //GasTankModule__getFee_notOwnerOrDelegate
+            // not owner
+    function test_payFee_notOwnerOrDelegate_when_not_owner() external {
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, vegeta));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(vegetaKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, vegeta, vegetaKey);
+
+        // execute
+        vm.prank(GELATO);
+        vm.expectRevert("GelatoRelayERC2771.callWithSyncFeeERC2771:NoErrorSelector"); // Gelato is not creating error message from custom errors
+        Address.functionCall(address(gelatoRelay), gelatoData);
+    }
+            // not delegate
+    function test_payFee_notOwnerOrDelegate_when_not_delegate() external {
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // delegate signs fee approval
+        bytes32 feeTxHash = gasTankModule.generateTransferHash(
+            safeExternalGTProxy, DAI, 2, gasTankModule.nonces(safeExternalGTProxy, kakaroto)
+        );
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeExternalGTProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        vm.expectRevert("GelatoRelayERC2771.callWithSyncFeeERC2771:NoErrorSelector"); // Gelato is not creating error message from custom errors
+        Address.functionCall(address(gelatoRelay), gelatoData);
+    }
+
+        // no admin fee
+            // totalFee > max fee GasTankModule__getFee_maxFee
+    function test_payFee_maxFee_with_no_admin_fee() external {
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 3, DAI, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        vm.expectRevert("GelatoRelayERC2771.callWithSyncFeeERC2771:NoErrorSelector"); // Gelato is not creating error message from custom errors
+        Address.functionCall(address(gelatoRelay), gelatoData);
+    }
+
+        // admin fee
+    function test_payFee_maxFee_with_admin_fee() external {
+        vm.prank(admin);
+        gasTankModule.setAdminFeePercentage(100_000); // 100%
+
+        vm.prank(admin);
+        gasTankModule.setTreasury(payable(admin));
+
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 2, DAI, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        vm.expectRevert("GelatoRelayERC2771.callWithSyncFeeERC2771:NoErrorSelector"); // Gelato is not creating error message from custom errors
+        Address.functionCall(address(gelatoRelay), gelatoData);
+    }
+            // no treasury set
+    function test_payFee_should_not_charge_admin_fee_when_treasury_is_set_but_fee_0() external {
+        vm.prank(admin);
+        gasTankModule.setAdminFeePercentage(0); // 0%
+        vm.prank(admin);
+        gasTankModule.setTreasury(payable(admin));
+
+        uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
+        uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
+        uint256 safeDAIBalanceBefore = ERC20(DAI).balanceOf(safeProxy);
+        uint256 feeCollectorDAIBalanceBefore = ERC20(DAI).balanceOf(feeCollector);
+
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        Address.functionCall(address(gelatoRelay), gelatoData);
+
+        assertEq(ERC20(USDC).balanceOf(safeProxy), safeUSDCBalanceBefore - 10);
+        assertEq(ERC20(USDC).balanceOf(vegeta), vegetaUSDCBalanceBefore + 10);
+        assertEq(ERC20(DAI).balanceOf(safeProxy), safeDAIBalanceBefore - 1);
+        assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
+    }
+    function test_payFee_should_not_charge_admin_fee_when_no_treasury_is_set() external {
+        vm.prank(admin);
+        gasTankModule.setAdminFeePercentage(100_000); // 1000%
+        vm.prank(admin);
+        gasTankModule.setTreasury(payable(address(0)));
+
+        uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
+        uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
+        uint256 safeDAIBalanceBefore = ERC20(DAI).balanceOf(safeProxy);
+        uint256 feeCollectorDAIBalanceBefore = ERC20(DAI).balanceOf(feeCollector);
+
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        Address.functionCall(address(gelatoRelay), gelatoData);
+
+        assertEq(ERC20(USDC).balanceOf(safeProxy), safeUSDCBalanceBefore - 10);
+        assertEq(ERC20(USDC).balanceOf(vegeta), vegetaUSDCBalanceBefore + 10);
+        assertEq(ERC20(DAI).balanceOf(safeProxy), safeDAIBalanceBefore - 1);
+        assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
+    }
+            // works
+    function test_payFee_should_send_admin_fee_to_treasury() external {
+        vm.prank(admin);
+        gasTankModule.setAdminFeePercentage(100_000); // 1000%
+        vm.prank(admin);
+        gasTankModule.setTreasury(payable(admin));
+
+        uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
+        uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
+        uint256 safeDAIBalanceBefore = ERC20(DAI).balanceOf(safeProxy);
+        uint256 feeCollectorDAIBalanceBefore = ERC20(DAI).balanceOf(feeCollector);
+        uint256 adminDAIBalanceBefore = ERC20(DAI).balanceOf(admin);
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10), maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        Address.functionCall(address(gelatoRelay), gelatoData);
+
+        assertEq(ERC20(USDC).balanceOf(safeProxy), safeUSDCBalanceBefore - 10);
+        assertEq(ERC20(USDC).balanceOf(vegeta), vegetaUSDCBalanceBefore + 10);
+        assertEq(ERC20(DAI).balanceOf(safeProxy), safeDAIBalanceBefore - 2);
+        assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
+        assertEq(ERC20(DAI).balanceOf(admin), adminDAIBalanceBefore + 1);
+    }
+
+    /////////////////////////////
+    ////////// HELPERS //////////
+    /////////////////////////////
 
     function getSafeUSDCTransferPayload(
         Safe safe,
@@ -370,7 +937,36 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         );
     }
 
-    function getGeletoData(
+    function addDelegate(address _delegate, Safe safe, uint256 signerKey) internal {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addDelegate.selector, _delegate);
+        execTransaction(safe, address(gasTankModule), payload, signerKey);
+    }
+
+    function removeDelegate(address _delegate, Safe safe, uint256 signerKey) internal {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.removeDelegate.selector, _delegate);
+        execTransaction(safe, address(gasTankModule), payload, signerKey);
+    }
+
+    function addTokenAllowance(address _delegate, address _token, Safe safe, uint256 signerKey) internal {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addTokenAllowance.selector, _delegate, _token);
+        execTransaction(safe, address(gasTankModule), payload, signerKey);
+    }
+
+    function removeTokenAllowance(address _delegate, address _token, Safe safe, uint256 signerKey) internal {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.removeTokenAllowance.selector, _delegate, _token);
+        execTransaction(safe, address(gasTankModule), payload, signerKey);
+    }
+
+    function setDelegateAndTokens(Safe safe, uint256 signerKey, address eldelegate, address[] memory tokens) internal {
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.addDelegate.selector, eldelegate);
+        execTransaction(safe, address(gasTankModule), payload, signerKey);
+
+        for (uint256 i = 0; i < tokens.length; i++) {
+            addTokenAllowance(eldelegate, tokens[i], safe, signerKey);
+        }
+    }
+
+    function getGelatoData(
         bytes memory gtData,
         uint256 fee,
         address payToken,
