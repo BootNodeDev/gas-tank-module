@@ -158,8 +158,8 @@ contract GasTankModuleTest is PRBTest, StdCheats {
     }
 
     function setUp() public virtual {
-        vm.prank(admin);
-        gasTankModule = new GasTankModule();
+        // vm.prank(admin);
+        gasTankModule = new GasTankModule(admin);
 
         address[] memory owners = new address[](2);
         owners[0] = kakaroto;

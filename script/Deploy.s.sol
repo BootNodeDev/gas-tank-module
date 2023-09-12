@@ -10,7 +10,7 @@ contract Deploy is BaseScript {
     function run() public broadcast returns (GasTankModule) {
         // foo = new Foo();
         // console2.log("deploy");
-        GasTankModule gt = new GasTankModule();
-        return gt;
+        // GasTankModule gt = new GasTankModule();
+        // return gt;
     }
 }

@@ -9,6 +9,9 @@ contract GasTankModuleScript is BaseScript {
     function setUp() public { }
 
     function run() public broadcast {
-        new GasTankModule();
+        address _admin = vm.envAddress("ADMIN");
+        bytes32 _salt = vm.envBytes32("SALT");
+
+        new GasTankModule{salt: _salt}(_admin);
     }
 }

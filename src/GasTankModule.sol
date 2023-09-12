@@ -88,7 +88,8 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     ////////// CONSTRUCTOR //////////
     /////////////////////////////////
 
-    constructor() {
+    constructor(address _admin) {
+        _transferOwnership(_admin);
         moduleAddress = address(this);
     }
 
