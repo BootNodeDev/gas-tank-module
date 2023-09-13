@@ -201,12 +201,39 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         deal(DAI, safeExternalGTProxy, 10_000 ether, true);
     }
 
-    // TODO - implement
     function test_DOMAIN_SEPARATOR() external view {
         gasTankModule.DOMAIN_SEPARATOR();
     }
-    function test_enableMyself_notDELEGATECALL() external{}
-    function test_enableMyself_GS102() external{}
+    function test_enableMyself_notDELEGATECALL() external{
+        vm.expectRevert(GasTankModule.GasTankModule__enableMyself_notDELEGATECALL.selector);
+        gasTankModule.enableMyself();
+    }
+    function test_enableMyself_twice() external{
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.enableMyself.selector);
+        bytes32 txHash = theSafe.getTransactionHash(
+            // Transaction info
+            address(gasTankModule),
+            0,
+            payload,
+            Enum.Operation.DelegateCall,
+            0,
+            // Payment info
+            0,
+            0,
+            address(0),
+            payable(0),
+            // Signature info
+            theSafe.nonce()
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
+
+        // Internally it reverts with GS102
+        // You can use vvvv to prove I'm right :-P
+        vm.expectRevert("GS013");
+        theSafe.execTransaction(
+            address(gasTankModule), 0, payload, Enum.Operation.DelegateCall, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
+        );
+    }
     function test_setTreasury_onlyOwner() external {
         vm.prank(vegeta);
         vm.expectRevert("Ownable: caller is not the owner");
@@ -221,6 +248,30 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         vm.prank(admin);
         vm.expectRevert(GasTankModule.GasTankModule__setAdminFeePercentage_invalidPercentage.selector);
         gasTankModule.setAdminFeePercentage(100_001);
+    }
+
+    function test_execTransaction_onlyGelatoRelayERC2771() external {
+        // build safe transaction for transferring USDC to some address
+        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
+
+        // delegate signs fee approval
+        bytes32 feeTxHash = gasTankModule.generateTransferHash(
+            safeExternalGTProxy, DAI, 2, gasTankModule.nonces(safeExternalGTProxy, delegate)
+        );
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(delegateKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeExternalGTProxy, safeProxy, safePayload, maxFee, feeSignature
+        );
+        bytes memory execData = abi.encodePacked(gasTankData, address(this), DAI, uint256(1), kakaroto);
+
+        // execute directly
+        vm.expectRevert("onlyGelatoRelayERC2771");
+        Address.functionCall(address(gasTankModule), execData);
     }
 
     function test_execTransaction_from_owner_paying_fee_with_ERC20_should_work() external {
@@ -550,7 +601,7 @@ contract GasTankModuleTest is PRBTest, StdCheats {
     }
         // GasTankModule__removeTokenAllowance_notDelegate
     function test_removeTokenAllowance_should_notDelegate() external {
-        bytes memory payload = abi.encodeWithSelector(GasTankModule.addTokenAllowance.selector, vegeta, USDC);
+        bytes memory payload = abi.encodeWithSelector(GasTankModule.removeTokenAllowance.selector, vegeta, USDC);
         bytes32 txHash = getTransactionHash(theSafe, address(gasTankModule), payload);
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(kakarotoKey, txHash);
