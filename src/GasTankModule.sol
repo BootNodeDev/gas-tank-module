@@ -20,21 +20,18 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
 
     address public immutable moduleAddress;
 
-    address internal constant SENTINEL_MODULES = address(0x1);
-
-    address internal constant EL_DIEGO = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
-
     string public constant name = "GasTankModule";
 
     string public constant version = "1";
 
+    address internal constant SENTINEL_MODULES = address(0x1);
+
+    address internal constant EL_DIEGO = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
+
     uint24 public constant DENOMINATOR = 100_000; // 1000 * 100
 
-    address payable public treasury;
-
-    uint24 public adminFeePercentage;
-
     /// 100% = 100_000 | 10% = 10_000 | 1% = 1_000 | 0.1% = 100 | 0.01% = 10
+    uint24 public adminFeePercentage;
 
     bytes32 public constant ALLOWED_FEE_TYPEHASH =
         keccak256("AllowedFee(address gasTank,address token,uint256 maxFee,uint16 nonce)");
@@ -56,7 +53,7 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     ////////////////////////////
 
     event SetAdminFeePercentage(uint24 adminFeePercentage);
-    event SetTreasury(address treasury);
+    event Withdraw(address indexed token, address indexed receiver, uint256 amount);
     event AddDelegate(address indexed safe, address delegate);
     event RemoveDelegate(address indexed safe, address delegate);
     event AddTokenAllowance(address indexed safe, address indexed delegate, address indexed token);
@@ -70,6 +67,8 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
 
     error GasTankModule__enableMyself_notDELEGATECALL();
     error GasTankModule__setAdminFeePercentage_invalidPercentage();
+    error GasTankModule__withdraw_invalidReceiver();
+    error GasTankModule__withdraw_ETH();
     error GasTankModule__getFee_notOwnerOrDelegate();
     error GasTankModule__getFee_maxFee();
     error GasTankModule__getFees_invalidSigner();
@@ -120,11 +119,16 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         emit SetAdminFeePercentage(_adminFeePercentage);
     }
 
-    /// @notice Set the treasury address
-    /// @param _treasury The new treasury address
-    function setTreasury(address payable _treasury) external onlyOwner {
-        treasury = _treasury;
-        emit SetTreasury(_treasury);
+    function withdraw(address _token, address _receiver)  external onlyOwner {
+        if (_receiver == address(0)) revert GasTankModule__withdraw_invalidReceiver();
+
+        uint256 amount = _token == EL_DIEGO
+            ? address(this).balance
+            : IERC20(_token).balanceOf(address(this));
+
+        _token.transfer(_receiver, amount);
+
+        emit Withdraw(_token, _receiver, amount);
     }
 
     function execTransaction(
@@ -146,88 +150,88 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     }
 
     /// @dev Allows to add a delegate.
-    /// @param delegate Delegate that should be added.
-    function addDelegate(address delegate) external {
-        if (delegate == address(0)) revert GasTankModule__addDelegate_invalidDelegate();
-        if (delegates[msg.sender].contains(delegate)) revert GasTankModule__addDelegate_alreadyDelegate();
+    /// @param _delegate Delegate that should be added.
+    function addDelegate(address _delegate) external {
+        if (_delegate == address(0)) revert GasTankModule__addDelegate_invalidDelegate();
+        if (delegates[msg.sender].contains(_delegate)) revert GasTankModule__addDelegate_alreadyDelegate();
 
-        delegates[msg.sender].add(delegate);
-        delegatedGasTanks[delegate].add(msg.sender);
-        delegatesCurrentIndex[msg.sender][delegate] += 1;
+        delegates[msg.sender].add(_delegate);
+        delegatedGasTanks[_delegate].add(msg.sender);
+        delegatesCurrentIndex[msg.sender][_delegate] += 1;
 
-        emit AddDelegate(msg.sender, delegate);
+        emit AddDelegate(msg.sender, _delegate);
     }
 
     /// @dev Allows to remove a delegate.
-    /// @param delegate Delegate that should be removed.
-    function removeDelegate(address delegate) external {
-        if (delegate == address(0)) revert GasTankModule__removeDelegate_invalidDelegate();
+    /// @param _delegate Delegate that should be removed.
+    function removeDelegate(address _delegate) external {
+        if (_delegate == address(0)) revert GasTankModule__removeDelegate_invalidDelegate();
 
-        delegates[msg.sender].remove(delegate);
-        delegatedGasTanks[delegate].remove(msg.sender);
+        delegates[msg.sender].remove(_delegate);
+        delegatedGasTanks[_delegate].remove(msg.sender);
 
-        emit RemoveDelegate(msg.sender, delegate);
+        emit RemoveDelegate(msg.sender, _delegate);
     }
 
     /// @dev Allows to update the allowance for a specified token. This can only be done via a Safe transaction.
-    /// @param delegate Delegate whose allowance should be updated.
-    /// @param token Token contract address.
-    function addTokenAllowance(address delegate, address token) external {
-        if (delegate == address(0)) revert GasTankModule__setTokenAllowance_invalidDelegate();
-        if (!delegates[msg.sender].contains(delegate)) revert GasTankModule__setTokenAllowance_notDelegate();
+    /// @param _delegate Delegate whose allowance should be updated.
+    /// @param _token Token contract address.
+    function addTokenAllowance(address _delegate, address _token) external {
+        if (_delegate == address(0)) revert GasTankModule__setTokenAllowance_invalidDelegate();
+        if (!delegates[msg.sender].contains(_delegate)) revert GasTankModule__setTokenAllowance_notDelegate();
 
-        uint16 currentIndex = delegatesCurrentIndex[msg.sender][delegate];
+        uint16 currentIndex = delegatesCurrentIndex[msg.sender][_delegate];
 
-        tokens[msg.sender][delegate][currentIndex].add(token);
+        tokens[msg.sender][_delegate][currentIndex].add(_token);
 
-        emit AddTokenAllowance(msg.sender, delegate, token);
+        emit AddTokenAllowance(msg.sender, _delegate, _token);
     }
 
-    function removeTokenAllowance(address delegate, address token) external {
-        if (delegate == address(0)) revert GasTankModule__removeTokenAllowance_invalidDelegate();
-        if (!delegates[msg.sender].contains(delegate)) revert GasTankModule__removeTokenAllowance_notDelegate();
+    function removeTokenAllowance(address _delegate, address _token) external {
+        if (_delegate == address(0)) revert GasTankModule__removeTokenAllowance_invalidDelegate();
+        if (!delegates[msg.sender].contains(_delegate)) revert GasTankModule__removeTokenAllowance_notDelegate();
 
-        uint16 currentIndex = delegatesCurrentIndex[msg.sender][delegate];
+        uint16 currentIndex = delegatesCurrentIndex[msg.sender][_delegate];
 
-        tokens[msg.sender][delegate][currentIndex].remove(token);
+        tokens[msg.sender][_delegate][currentIndex].remove(_token);
 
-        emit RemoveTokenAllowance(msg.sender, delegate, token);
+        emit RemoveTokenAllowance(msg.sender, _delegate, _token);
     }
 
     /////////////////////////////
     ////////// PUBLICS //////////
     /////////////////////////////
 
-    function getDelegates(address safe) public view returns (address[] memory) {
-        return delegates[safe].values();
+    function getDelegates(address _safe) public view returns (address[] memory) {
+        return delegates[_safe].values();
     }
 
-    function getDelegatedSafes(address delegate) public view returns (address[] memory) {
-        return delegatedGasTanks[delegate].values();
+    function getDelegatedSafes(address _delegate) public view returns (address[] memory) {
+        return delegatedGasTanks[_delegate].values();
     }
 
-    function isDelegate(address safe, address delegate) public view returns (bool) {
-        return delegates[safe].contains(delegate);
+    function isDelegate(address _safe, address _delegate) public view returns (bool) {
+        return delegates[_safe].contains(_delegate);
     }
 
-    function getTokens(address safe, address delegate) public view returns (address[] memory) {
-        uint16 currentIndex = delegates[safe].contains(delegate) ? delegatesCurrentIndex[safe][delegate] : 0;
+    function getTokens(address _safe, address _delegate) public view returns (address[] memory) {
+        uint16 currentIndex = delegates[_safe].contains(_delegate) ? delegatesCurrentIndex[_safe][_delegate] : 0;
 
-        return tokens[safe][delegate][currentIndex].values();
+        return tokens[_safe][_delegate][currentIndex].values();
     }
 
     /// @dev Generates the transfer hash that should be signed to authorize a transfer
     function generateTransferHash(
-        address safe,
-        address token,
-        uint96 amount,
-        uint16 signerNonce
+        address _safe,
+        address _token,
+        uint96 _amount,
+        uint16 _signerNonce
     )
         public
         view
         returns (bytes32)
     {
-        return keccak256(_generateTransferHashData(safe, token, amount, signerNonce));
+        return keccak256(_generateTransferHashData(_safe, _token, _amount, _signerNonce));
     }
 
     ///////////////////////////////
@@ -256,7 +260,7 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         uint256 totalFee = relayerFee;
         uint256 adminFeeAmount;
 
-        if (treasury != address(0) && adminFeePercentage > 0) {
+        if (adminFeePercentage > 0) {
             adminFeeAmount = (relayerFee * adminFeePercentage) / DENOMINATOR;
             totalFee += adminFeeAmount;
         }
@@ -266,25 +270,22 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         // Transfer fee from safe to this contract
         _pullFee(Safe(payable(_gasTank)), feeToken, payable(address(this)), totalFee);
 
-        // Transfer admin fee from this contract to treasury
-        if (adminFeeAmount > 0) feeToken.transfer(treasury, adminFeeAmount);
-
         // Payment to Gelato
         _transferRelayFee();
     }
 
     /// @dev Generates the data for the transfer hash (required for signing)
     function _generateTransferHashData(
-        address safe,
-        address token,
-        uint256 amount,
-        uint16 signerNonce
+        address _safe,
+        address _token,
+        uint256 _amount,
+        uint16 _signerNonce
     )
         internal
         view
         returns (bytes memory)
     {
-        bytes32 transferHash = keccak256(abi.encode(ALLOWED_FEE_TYPEHASH, safe, token, amount, signerNonce));
+        bytes32 transferHash = keccak256(abi.encode(ALLOWED_FEE_TYPEHASH, _safe, _token, _amount, _signerNonce));
         return abi.encodePacked("\x19\x01", _getDomainSeparator(), transferHash);
     }
 
@@ -301,14 +302,14 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         return false;
     }
 
-    function _pullFee(Safe safe, address token, address payable to, uint256 amount) internal {
-        if (token == address(0) || token == EL_DIEGO) {
+    function _pullFee(Safe _safe, address _token, address payable _to, uint256 _amount) internal {
+        if (_token == address(0) || _token == EL_DIEGO) {
             // solium-disable-next-line security/no-send
-            bool result = safe.execTransactionFromModule(to, amount, "", Enum.Operation.Call);
+            bool result = _safe.execTransactionFromModule(_to, _amount, "", Enum.Operation.Call);
             if (!result) revert GasTankModule__transfer_ETH();
         } else {
-            bytes memory data = abi.encodeWithSelector(IERC20.transfer.selector, to, amount);
-            bool result = safe.execTransactionFromModule(token, 0, data, Enum.Operation.Call);
+            bytes memory data = abi.encodeWithSelector(IERC20.transfer.selector, _to, _amount);
+            bool result = _safe.execTransactionFromModule(_token, 0, data, Enum.Operation.Call);
             if (!result) revert GasTankModule__transfer_ERC20();
         }
     }

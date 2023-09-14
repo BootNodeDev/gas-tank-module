@@ -234,11 +234,36 @@ contract GasTankModuleTest is PRBTest, StdCheats {
             address(gasTankModule), 0, payload, Enum.Operation.DelegateCall, 0, 0, 0, address(0), payable(0), abi.encodePacked(r, s, v)
         );
     }
-    function test_setTreasury_onlyOwner() external {
+
+    function test_withdraw_onlyOwner() external {
         vm.prank(vegeta);
         vm.expectRevert("Ownable: caller is not the owner");
-        gasTankModule.setTreasury(payable(vegeta));
+        gasTankModule.withdraw(USDC, vegeta);
     }
+
+    function test_withdraw_should_work_ERC20() external {
+        deal(USDC, address(gasTankModule), 10, true);
+        uint256 gasTankModuleUSDCBalanceBefore = ERC20(USDC).balanceOf(address(gasTankModule));
+        uint256 adminUSDCBalanceBefore = ERC20(USDC).balanceOf(admin);
+
+        vm.prank(admin);
+        gasTankModule.withdraw(USDC, admin);
+
+        assertEq(ERC20(USDC).balanceOf(address(gasTankModule)), gasTankModuleUSDCBalanceBefore - 10);
+        assertEq(ERC20(USDC).balanceOf(admin), adminUSDCBalanceBefore + 10);
+    }
+    function test_withdraw_should_work_ETH() external {
+        deal(address(gasTankModule), 10);
+        uint256 gasTankModuleETHBalanceBefore = address(gasTankModule).balance;
+        uint256 adminETHBalanceBefore = admin.balance;
+
+        vm.prank(admin);
+        gasTankModule.withdraw(EL_DIEGO, admin);
+
+        assertEq(address(gasTankModule).balance, gasTankModuleETHBalanceBefore - 10);
+        assertEq(admin.balance, adminETHBalanceBefore + 10);
+    }
+
     function test_setAdminFeePercentage_onlyOwner() external {
         vm.prank(vegeta);
         vm.expectRevert("Ownable: caller is not the owner");
@@ -817,7 +842,6 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         gasTankModule.setAdminFeePercentage(100_000); // 100%
 
         vm.prank(admin);
-        gasTankModule.setTreasury(payable(admin));
 
         bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
 
@@ -841,48 +865,9 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         Address.functionCall(address(gelatoRelay), gelatoData);
     }
             // no treasury set
-    function test_payFee_should_not_charge_admin_fee_when_treasury_is_set_but_fee_0() external {
+    function test_payFee_should_not_charge_admin_fee_when_fee_is_0() external {
         vm.prank(admin);
         gasTankModule.setAdminFeePercentage(0); // 0%
-        vm.prank(admin);
-        gasTankModule.setTreasury(payable(admin));
-
-        uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
-        uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
-        uint256 safeDAIBalanceBefore = ERC20(DAI).balanceOf(safeProxy);
-        uint256 feeCollectorDAIBalanceBefore = ERC20(DAI).balanceOf(feeCollector);
-
-        // build safe transaction for transferring USDC to some address
-        bytes memory safePayload = getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10);
-
-        // owner signs fee approval
-        bytes32 feeTxHash =
-            gasTankModule.generateTransferHash(safeProxy, DAI, 2, gasTankModule.nonces(safeProxy, kakaroto));
-        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
-        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
-
-        uint256 maxFee = 2;
-
-        // build Gelato transaction
-        bytes memory gasTankData = abi.encodeWithSelector(
-            GasTankModule.execTransaction.selector, safeProxy, safeProxy, safePayload, maxFee, feeSignature
-        );
-        bytes memory gelatoData = getGelatoData(gasTankData, 1, DAI, kakaroto, kakarotoKey);
-
-        // execute
-        vm.prank(GELATO);
-        Address.functionCall(address(gelatoRelay), gelatoData);
-
-        assertEq(ERC20(USDC).balanceOf(safeProxy), safeUSDCBalanceBefore - 10);
-        assertEq(ERC20(USDC).balanceOf(vegeta), vegetaUSDCBalanceBefore + 10);
-        assertEq(ERC20(DAI).balanceOf(safeProxy), safeDAIBalanceBefore - 1);
-        assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
-    }
-    function test_payFee_should_not_charge_admin_fee_when_no_treasury_is_set() external {
-        vm.prank(admin);
-        gasTankModule.setAdminFeePercentage(100_000); // 1000%
-        vm.prank(admin);
-        gasTankModule.setTreasury(payable(address(0)));
 
         uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
         uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
@@ -916,17 +901,15 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
     }
             // works
-    function test_payFee_should_send_admin_fee_to_treasury() external {
+    function test_payFee_should_keep_ERC20_admin_fee() external {
         vm.prank(admin);
         gasTankModule.setAdminFeePercentage(100_000); // 1000%
-        vm.prank(admin);
-        gasTankModule.setTreasury(payable(admin));
 
         uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
         uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
         uint256 safeDAIBalanceBefore = ERC20(DAI).balanceOf(safeProxy);
         uint256 feeCollectorDAIBalanceBefore = ERC20(DAI).balanceOf(feeCollector);
-        uint256 adminDAIBalanceBefore = ERC20(DAI).balanceOf(admin);
+        uint256 gasTankModuleDAIBalanceBefore = ERC20(DAI).balanceOf(address(gasTankModule));
 
         // owner signs fee approval
         bytes32 feeTxHash =
@@ -950,7 +933,42 @@ contract GasTankModuleTest is PRBTest, StdCheats {
         assertEq(ERC20(USDC).balanceOf(vegeta), vegetaUSDCBalanceBefore + 10);
         assertEq(ERC20(DAI).balanceOf(safeProxy), safeDAIBalanceBefore - 2);
         assertEq(ERC20(DAI).balanceOf(feeCollector), feeCollectorDAIBalanceBefore + 1);
-        assertEq(ERC20(DAI).balanceOf(admin), adminDAIBalanceBefore + 1);
+        assertEq(ERC20(DAI).balanceOf(address(gasTankModule)), gasTankModuleDAIBalanceBefore + 1);
+    }
+
+    function test_payFee_should_keep_ETH_admin_fee() external {
+        vm.prank(admin);
+        gasTankModule.setAdminFeePercentage(100_000); // 1000%
+
+        uint256 safeUSDCBalanceBefore = ERC20(USDC).balanceOf(safeProxy);
+        uint256 vegetaUSDCBalanceBefore = ERC20(USDC).balanceOf(vegeta);
+        uint256 safeETHBalanceBefore = safeProxy.balance;
+        uint256 feeCollectorETHBalanceBefore = feeCollector.balance;
+        uint256 gasTankModuleETHBalanceBefore = address(gasTankModule).balance;
+
+        // owner signs fee approval
+        bytes32 feeTxHash =
+            gasTankModule.generateTransferHash(safeProxy, EL_DIEGO, 2, gasTankModule.nonces(safeProxy, kakaroto));
+        (uint8 fee_v, bytes32 fee_r, bytes32 fee_s) = vm.sign(kakarotoKey, feeTxHash);
+        bytes memory feeSignature = abi.encodePacked(fee_r, fee_s, fee_v);
+
+        uint256 maxFee = 2;
+
+        // build Gelato transaction
+        bytes memory gasTankData = abi.encodeWithSelector(
+            GasTankModule.execTransaction.selector, safeProxy, safeProxy, getSafeUSDCTransferPayload(theSafe, kakarotoKey, vegeta, 10), maxFee, feeSignature
+        );
+        bytes memory gelatoData = getGelatoData(gasTankData, 1, EL_DIEGO, kakaroto, kakarotoKey);
+
+        // execute
+        vm.prank(GELATO);
+        Address.functionCall(address(gelatoRelay), gelatoData);
+
+        assertEq(ERC20(USDC).balanceOf(safeProxy), safeUSDCBalanceBefore - 10);
+        assertEq(ERC20(USDC).balanceOf(vegeta), vegetaUSDCBalanceBefore + 10);
+        assertEq(safeProxy.balance, safeETHBalanceBefore - 2);
+        assertEq(feeCollector.balance, feeCollectorETHBalanceBefore + 1);
+        assertEq(address(gasTankModule).balance, gasTankModuleETHBalanceBefore + 1);
     }
 
     /////////////////////////////
