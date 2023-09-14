@@ -96,11 +96,16 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     ////////// EXTERNALS //////////
     ///////////////////////////////
 
-    //solhint-disable-next-line func-name-mixedcase
+    /**
+     * @dev Returns this contract's domain separator
+     */
     function DOMAIN_SEPARATOR() external view returns (bytes32) {
         return _getDomainSeparator();
     }
 
+    /**
+     * @dev This function can be used for enabling this contract as a module for a Safe during its creation
+     */
     function enableMyself() external {
         if (moduleAddress == address(this)) revert GasTankModule__enableMyself_notDELEGATECALL();
 
@@ -110,8 +115,12 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         modules[SENTINEL_MODULES] = moduleAddress;
     }
 
-    /// @notice Set the admin fee percentage
-    /// @param _adminFeePercentage The new admin fee percentage
+    /**
+     * @dev Set the admin fee percentage.
+     * Only the admin can call this function.
+     *
+     * @param _adminFeePercentage The new admin fee percentage
+     */
     function setAdminFeePercentage(uint24 _adminFeePercentage) external onlyOwner {
         if (_adminFeePercentage > DENOMINATOR) revert GasTankModule__setAdminFeePercentage_invalidPercentage();
 
@@ -119,6 +128,14 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         emit SetAdminFeePercentage(_adminFeePercentage);
     }
 
+    /**
+     * @dev Transfer the total amount of `_token` deposited in this contract to `_receiver`. Use `EL_DIEGO` if you want
+     * to withdraw the native token.
+     * Only the admin can call this function.
+     *
+     * @param _token The token address. `EL_DIEGO` if native token.
+     * @param _receiver The receiver address.
+     */
     function withdraw(address _token, address _receiver)  external onlyOwner {
         if (_receiver == address(0)) revert GasTankModule__withdraw_invalidReceiver();
 
@@ -131,6 +148,19 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         emit Withdraw(_token, _receiver, amount);
     }
 
+    /**
+     * @dev Here is where the magic happens.
+     * Call `_safe` execTransaction and pull the fees from `_gasTank` to pay Gelato for relaying the transaction.
+     * Only GelatoRelayERC2771 contract can call this function.
+     *
+     * @param _gasTank A safe used as the gas tank from where the fees are pulled. The sender mut be an owner or a
+     * delegate.
+     * @param _safe The safe where the transaction is executed.
+     * @param _txData The contains the calldata used for calling execTransaction on the `_safe`.
+     * @param _maxFee The max allowed fee the sender is willing to pay, including the admin fee if it was enabled.
+     * @param _feeSignature The signature used for verifying that the sender agreed to pay the relaying fee using the
+     * `_gasTank`.
+     */
     function execTransaction(
         address _gasTank,
         address _safe,
@@ -149,8 +179,13 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         return returnData;
     }
 
-    /// @dev Allows to add a delegate.
-    /// @param _delegate Delegate that should be added.
+    /**
+     * @dev Used for adding a `_delegate` for a safe which will be used as a gas tank. To make sure the owners of the
+     * safe agreed upon setting this delegate it uses the msg.sender, so this function should be called through a
+     * transaction from the safe.
+     *
+     * @param _delegate The address of the new delegate.
+     */
     function addDelegate(address _delegate) external {
         if (_delegate == address(0)) revert GasTankModule__addDelegate_invalidDelegate();
         if (delegates[msg.sender].contains(_delegate)) revert GasTankModule__addDelegate_alreadyDelegate();
@@ -162,8 +197,13 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         emit AddDelegate(msg.sender, _delegate);
     }
 
-    /// @dev Allows to remove a delegate.
-    /// @param _delegate Delegate that should be removed.
+    /**
+     * @dev Used for removing a `_delegate` for a safe which will be used as a gas tank. To make sure the owners of the
+     * safe agreed upon removing this delegate it uses the msg.sender, so this function should be called through a
+     * transaction from the safe.
+     *
+     * @param _delegate The address of the delegate.
+     */
     function removeDelegate(address _delegate) external {
         if (_delegate == address(0)) revert GasTankModule__removeDelegate_invalidDelegate();
 
@@ -173,9 +213,14 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         emit RemoveDelegate(msg.sender, _delegate);
     }
 
-    /// @dev Allows to update the allowance for a specified token. This can only be done via a Safe transaction.
-    /// @param _delegate Delegate whose allowance should be updated.
-    /// @param _token Token contract address.
+    /**
+     * @dev Used for allowing a `_delegate` to pull the `_token` as fee from a safe used a gas tank. To make sure the
+     * owners of the safe agreed upon this matter it uses the msg.sender, so this function should be called through a
+     * transaction from the safe.
+     *
+     * @param _delegate The address of the delegate.
+     * @param _token Token contract address.
+     */
     function addTokenAllowance(address _delegate, address _token) external {
         if (_delegate == address(0)) revert GasTankModule__setTokenAllowance_invalidDelegate();
         if (!delegates[msg.sender].contains(_delegate)) revert GasTankModule__setTokenAllowance_notDelegate();
@@ -187,6 +232,14 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         emit AddTokenAllowance(msg.sender, _delegate, _token);
     }
 
+    /**
+     * @dev Used for remove the power given to a `_delegate` to pull the `_token` as fee from a safe used a gas tank.
+     * To make sure the owners of the safe agreed upon this matter it uses the msg.sender, so this function should be
+     * called through a transaction from the safe.
+     *
+     * @param _delegate The address of the delegate.
+     * @param _token Token contract address.
+     */
     function removeTokenAllowance(address _delegate, address _token) external {
         if (_delegate == address(0)) revert GasTankModule__removeTokenAllowance_invalidDelegate();
         if (!delegates[msg.sender].contains(_delegate)) revert GasTankModule__removeTokenAllowance_notDelegate();
@@ -202,25 +255,54 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     ////////// PUBLICS //////////
     /////////////////////////////
 
+    /**
+     * @dev Gets the list of delegates of a given `_safe`
+     *
+     * @param _safe The safe address.
+     */
     function getDelegates(address _safe) public view returns (address[] memory) {
         return delegates[_safe].values();
     }
 
+    /**
+     * @dev Gets the list of safes where the `_delegate` is such.
+     *
+     * @param _delegate The delegate address.
+     */
     function getDelegatedSafes(address _delegate) public view returns (address[] memory) {
         return delegatedGasTanks[_delegate].values();
     }
 
+    /**
+     * @dev Checks an address is a safe's delegate.
+     *
+     * @param _safe The safe address.
+     * @param _delegate The delegate address.
+     */
     function isDelegate(address _safe, address _delegate) public view returns (bool) {
         return delegates[_safe].contains(_delegate);
     }
 
+    /**
+     * @dev Gets the list of allowed tokens for a `_delegate` on a `_safes`.
+     *
+     * @param _safe The safe address.
+     * @param _delegate The delegate address.
+     */
     function getTokens(address _safe, address _delegate) public view returns (address[] memory) {
         uint16 currentIndex = delegates[_safe].contains(_delegate) ? delegatesCurrentIndex[_safe][_delegate] : 0;
 
         return tokens[_safe][_delegate][currentIndex].values();
     }
 
-    /// @dev Generates the transfer hash that should be signed to authorize a transfer
+    /**
+     * @dev Generates the hash that should be signed to authorize pulling fees from a safe used as gas tank.
+     *
+     * @param _safe The safe address.
+     * @param _token The fee token address.
+     * @param _amount The fee amount.
+     * @param _signerNonce The signer nonce.
+     */
     function generateTransferHash(
         address _safe,
         address _token,
@@ -238,6 +320,15 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     ////////// INTERNALS //////////
     ///////////////////////////////
 
+    /**
+     * @dev Validates that the sender agreed to pay up to `_maxFee` from the `_gasTank` and that it is whether an owner
+     * os a delegate then it pulls the relayer and admin fees from the  `_gasTank` and pays Gelato for relaying the
+     * transaction, it keeps the admin fee if it set for later withdrawal.
+     *
+     * @param _gasTank The address of a safe used as the gas tank.
+     * @param _maxFee The max allowed fee, including the admin fee if it was enabled.
+     * @param _feeSignature The sender signature.
+     */
     function _payFee(address _gasTank, uint256 _maxFee, bytes memory _feeSignature) internal {
         address feeToken = _getFeeToken();
         uint256 relayerFee = _getFee();
@@ -268,13 +359,21 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         if (totalFee > _maxFee) revert GasTankModule__getFee_maxFee();
 
         // Transfer fee from safe to this contract
-        _pullFee(Safe(payable(_gasTank)), feeToken, payable(address(this)), totalFee);
+        _pullFee(Safe(payable(_gasTank)), feeToken, totalFee);
 
         // Payment to Gelato
         _transferRelayFee();
     }
 
-    /// @dev Generates the data for the transfer hash (required for signing)
+    /**
+     * @dev Generates the data for the hash that should be signed to authorize pulling fees from a safe used as gas
+     * tank.
+     *
+     * @param _safe The safe address.
+     * @param _token The fee token address.
+     * @param _amount The fee amount.
+     * @param _signerNonce The signer nonce.
+     */
     function _generateTransferHashData(
         address _safe,
         address _token,
@@ -289,6 +388,14 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         return abi.encodePacked("\x19\x01", _getDomainSeparator(), transferHash);
     }
 
+    /**
+     * @dev Checks if the `_signer` is whether the owner of the `_gasTank` or a delegate with `_feeToken` authorized to
+     * be used.
+     *
+     * @param _gasTank The address of the safe used as the gas tank.
+     * @param _signer The signer address.
+     * @param _feeToken The fee token.
+     */
     function _isOwnerOrDelegate(address _gasTank, address _signer, address _feeToken) internal view returns (bool) {
         if (Safe(payable(_gasTank)).isOwner(_signer)) {
             return true;
@@ -302,18 +409,28 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         return false;
     }
 
-    function _pullFee(Safe _safe, address _token, address payable _to, uint256 _amount) internal {
+    /**
+     * @dev Pulls `_amount` of `_token` from `_safe` to this contract.
+     *
+     * @param _safe The safe address.
+     * @param _token The token address.
+     * @param _amount The amount
+     */
+    function _pullFee(Safe _safe, address _token, uint256 _amount) internal {
         if (_token == address(0) || _token == EL_DIEGO) {
             // solium-disable-next-line security/no-send
-            bool result = _safe.execTransactionFromModule(_to, _amount, "", Enum.Operation.Call);
+            bool result = _safe.execTransactionFromModule(payable(address(this)), _amount, "", Enum.Operation.Call);
             if (!result) revert GasTankModule__transfer_ETH();
         } else {
-            bytes memory data = abi.encodeWithSelector(IERC20.transfer.selector, _to, _amount);
+            bytes memory data = abi.encodeWithSelector(IERC20.transfer.selector, payable(address(this)), _amount);
             bool result = _safe.execTransactionFromModule(_token, 0, data, Enum.Operation.Call);
             if (!result) revert GasTankModule__transfer_ERC20();
         }
     }
 
+    /**
+     * @dev Calculates the domain separator.
+     */
     function _getDomainSeparator() internal view returns (bytes32) {
         return keccak256(
             abi.encode(
