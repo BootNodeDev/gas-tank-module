@@ -42,10 +42,14 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
 
     mapping(address delegate => EnumerableSet.AddressSet) internal delegatedGasTanks;
 
-    // index 0 is used for no when delegate is not a real delegate
+    // this saves which tokens a delegate is allowed to use on a given gasTank. Index 0 is used for when delegate is not
+    // a real delegate
     mapping(address gasTank => mapping(address delegate => mapping(uint16 index => EnumerableSet.AddressSet))) internal
         tokens;
 
+    // this is used as the index for the `tokens` mapping, to prevent having to remove all elements in the AddressSet
+    // one by one. So each time a delegate is added for a gasTank, this index is increased by 1 and this way a clean
+    // new instance of the AddressSet is used to save which tokens the delegate is allowed to use
     mapping(address gasTank => mapping(address delegate => uint16 index)) internal delegatesCurrentIndex;
 
     ////////////////////////////
