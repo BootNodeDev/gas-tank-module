@@ -1,5 +1,7 @@
 # GasTank Module
 
+![diagram](./docs/GasTank.png)
+
 ## Installation
 
 _Having issues? See the [troubleshooting section](https://github.com/foundry-rs/foundry/blob/master/README.md#troubleshooting-installation)_.

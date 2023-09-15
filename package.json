@@ -32,6 +32,8 @@
     "test:mainnet": "forge test -vv --fork-url $MAINNET_RPC_URL --fork-block-number $MAINNET_FORK_NUMBER",
     "test": "dotenv-run-script test:mainnet",
     "deploy:goerli": "forge script script/GasTankModule.s.sol:GasTankModuleScript --rpc-url $GOERLI_RPC_URL -vvvv",
-    "run:deploy:goerli": "dotenv-run-script deploy:goerli"
+    "deploy:sepolia": "forge script script/GasTankModule.s.sol:GasTankModuleScript --rpc-url $SEPOLIA_RPC_URL -vvvv",
+    "run:deploy:goerli": "dotenv-run-script deploy:goerli",
+    "run:deploy:sepolia": "dotenv-run-script deploy:sepolia"
   }
 }
