@@ -16,7 +16,10 @@ In summary, the GasTankModule provides a solution for covering gas costs associa
 
 ![diagram](./docs/GasTank.png)
 
-## Installation
+
+## Development
+
+### Install Foundry
 
 _Having issues? See the [troubleshooting section](https://github.com/foundry-rs/foundry/blob/master/README.md#troubleshooting-installation)_.
 
@@ -34,21 +37,21 @@ Then, run `foundryup` in a new terminal session or after reloading your `PATH`.
 
 Other ways to use `foundryup`, and other documentation, can be found [here](https://github.com/foundry-rs/foundry/tree/master/foundryup). Happy forging!
 
-## Install dependencies
+### Install dependencies
 
-### Yarn
+#### Yarn
 
 ```
 yarn install
 ```
 
-### Forge
+#### Forge
 
 ```
 forge install
 ```
 
-## Run tests
+### Run tests
 
 Create an `.env` file using `.env.example` as template, then run
 
