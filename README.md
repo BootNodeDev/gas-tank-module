@@ -14,6 +14,8 @@ To obtain the required tokens for Gelato fee payment, two options are available:
 
 In summary, the GasTankModule provides a solution for covering gas costs associated with transactions within a Safe by getting the tokens to pay for Gelato's relayer service fees from a GasTank. It offers flexibility by allowing the GasTank to be either the same Safe used for execution or a different one, as long as the user meets the authorization requirements.
 
+The contract is designed as a singleton. This way not every Safe needs to deploy their own module and it is possible that this module is shared between different Safes.
+
 ![diagram](./docs/GasTank.png)
 
 

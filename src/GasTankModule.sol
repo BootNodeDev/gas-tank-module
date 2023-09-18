@@ -14,9 +14,25 @@ import { ECDSA } from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import { Ownable } from "@openzeppelin/contracts/access/Ownable.sol";
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
+/**
+ * @title GasTankModule
+ * @dev The GasTankModule provides a solution for covering gas costs associated with transactions within a Safe by
+ * getting the tokens to pay for Gelato's relayer service fees from a GasTank. It offers flexibility by allowing the
+ * GasTank to be either the same Safe used for execution or a different one, as long as the user meets the authorization
+ * requirements.
+ *
+ * The contract is designed as a singleton. This way not every Safe needs to deploy their own module and it is possible
+ * that this module is shared between different Safes.
+ *
+ * @author BootNode
+ */
 contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     using TokenUtils for address;
     using EnumerableSet for EnumerableSet.AddressSet;
+
+    address internal constant SENTINEL_MODULES = address(0x1);
+
+    address internal constant EL_DIEGO = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
 
     address public immutable moduleAddress;
 
@@ -24,17 +40,14 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
 
     string public constant version = "1";
 
-    address internal constant SENTINEL_MODULES = address(0x1);
-
-    address internal constant EL_DIEGO = address(0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE);
-
     uint24 public constant DENOMINATOR = 100_000; // 1000 * 100
-
-    /// 100% = 100_000 | 10% = 10_000 | 1% = 1_000 | 0.1% = 100 | 0.01% = 10
-    uint24 public adminFeePercentage;
 
     bytes32 public constant ALLOWED_FEE_TYPEHASH =
         keccak256("AllowedFee(address gasTank,address token,uint256 maxFee,uint16 nonce)");
+
+
+    /// 100% = 100_000 | 10% = 10_000 | 1% = 1_000 | 0.1% = 100 | 0.01% = 10
+    uint24 public adminFeePercentage;
 
     mapping(address gasTank => mapping(address signer => uint16 signerNonce)) public nonces;
 
@@ -62,8 +75,13 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     event RemoveDelegate(address indexed safe, address delegate);
     event AddTokenAllowance(address indexed safe, address indexed delegate, address indexed token);
     event RemoveTokenAllowance(address indexed safe, address indexed delegate, address indexed token);
-    event GetFeesFromOwner(address indexed safe, address indexed owner, address token, uint256 relayerFee);
-    event GetFeesFromDelegate(address indexed safe, address indexed delegate, address token, uint256 relayerFee);
+    event ExecTransaction(
+        address indexed sender,
+        address indexed gasTank,
+        address indexed safe,
+        uint256 relayerFee,
+        uint256 adminFeeAmount
+    );
 
     ////////////////////////////
     ////////// ERRORS //////////
@@ -72,10 +90,9 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     error GasTankModule__enableMyself_notDELEGATECALL();
     error GasTankModule__setAdminFeePercentage_invalidPercentage();
     error GasTankModule__withdraw_invalidReceiver();
-    error GasTankModule__withdraw_ETH();
-    error GasTankModule__getFee_notOwnerOrDelegate();
-    error GasTankModule__getFee_maxFee();
-    error GasTankModule__getFees_invalidSigner();
+    error GasTankModule__payFees_invalidSigner();
+    error GasTankModule__payFees_notOwnerOrDelegate();
+    error GasTankModule__payFees_maxFee();
     error GasTankModule__addDelegate_invalidDelegate();
     error GasTankModule__removeDelegate_invalidDelegate();
     error GasTankModule__addDelegate_alreadyDelegate();
@@ -83,7 +100,6 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     error GasTankModule__setTokenAllowance_notDelegate();
     error GasTankModule__removeTokenAllowance_invalidDelegate();
     error GasTankModule__removeTokenAllowance_notDelegate();
-    error GasTankModule__recoverSignature_invalidSigner();
     error GasTankModule__transfer_ETH();
     error GasTankModule__transfer_ERC20();
 
@@ -140,12 +156,10 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
      * @param _token The token address. `EL_DIEGO` if native token.
      * @param _receiver The receiver address.
      */
-    function withdraw(address _token, address _receiver)  external onlyOwner {
+    function withdraw(address _token, address _receiver) external onlyOwner {
         if (_receiver == address(0)) revert GasTankModule__withdraw_invalidReceiver();
 
-        uint256 amount = _token == EL_DIEGO
-            ? address(this).balance
-            : IERC20(_token).balanceOf(address(this));
+        uint256 amount = _token == EL_DIEGO ? address(this).balance : IERC20(_token).balanceOf(address(this));
 
         _token.transfer(_receiver, amount);
 
@@ -176,9 +190,11 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         onlyGelatoRelayERC2771
         returns (bool success)
     {
-        _payFee(_gasTank, _maxFee, _feeSignature);
+        (uint256 relayerFee, uint256 adminFeeAmount) = _payFees(_gasTank, _maxFee, _feeSignature);
 
         bool returnData = abi.decode(Address.functionCall(_safe, _txData), (bool));
+
+        emit ExecTransaction(_getMsgSender(), _gasTank, _safe, relayerFee, adminFeeAmount);
 
         return returnData;
     }
@@ -333,9 +349,16 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
      * @param _maxFee The max allowed fee, including the admin fee if it was enabled.
      * @param _feeSignature The sender signature.
      */
-    function _payFee(address _gasTank, uint256 _maxFee, bytes memory _feeSignature) internal {
+    function _payFees(
+        address _gasTank,
+        uint256 _maxFee,
+        bytes memory _feeSignature
+    )
+        internal
+        returns (uint256 relayerFee, uint256 adminFeeAmount)
+    {
         address feeToken = _getFeeToken();
-        uint256 relayerFee = _getFee();
+        relayerFee = _getFee();
 
         address sender = _getMsgSender();
         uint16 signerNonce = nonces[_gasTank][sender];
@@ -347,20 +370,19 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
         // Check signature
         (address signer, ECDSA.RecoverError error) = ECDSA.tryRecover(keccak256(transferHashData), _feeSignature);
 
-        if (error != ECDSA.RecoverError.NoError || sender != signer) revert GasTankModule__getFees_invalidSigner();
+        if (error != ECDSA.RecoverError.NoError || sender != signer) revert GasTankModule__payFees_invalidSigner();
 
         // check signer is owner or delegate
-        if (!_isOwnerOrDelegate(_gasTank, signer, feeToken)) revert GasTankModule__getFee_notOwnerOrDelegate();
+        if (!_isOwnerOrDelegate(_gasTank, signer, feeToken)) revert GasTankModule__payFees_notOwnerOrDelegate();
 
         uint256 totalFee = relayerFee;
-        uint256 adminFeeAmount;
 
         if (adminFeePercentage > 0) {
             adminFeeAmount = (relayerFee * adminFeePercentage) / DENOMINATOR;
             totalFee += adminFeeAmount;
         }
 
-        if (totalFee > _maxFee) revert GasTankModule__getFee_maxFee();
+        if (totalFee > _maxFee) revert GasTankModule__payFees_maxFee();
 
         // Transfer fee from safe to this contract
         _pullFee(Safe(payable(_gasTank)), feeToken, totalFee);
