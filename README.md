@@ -18,6 +18,42 @@ The contract is designed as a singleton. This way not every Safe needs to deploy
 
 ![diagram](./docs/GasTank.png)
 
+## Authentication and Authorization
+In order to authenticate the sender and validate the authorization to pay the fees, two signatures are required.
+
+1. Is [required by Gelato](https://docs.gelato.network/developer-services/relay/erc-2771-recommended#rationale) in order to authenticate the sender of the relayed transaction, which then is appended to the calldata passed to the module.
+
+2. Is the one used in this module to validate that the sender is whether an owner or a delegate of the GasTank and that it authorize to pay the fees using a given token and up to a maximum amount. For this the module relies in the ERC-721 signature and uses the following schema:
+
+- EIP721Domain
+```
+{
+  EIP712Domain: [
+    { name: 'name', type: 'string' },
+    { name: 'version', type: 'string' },
+    { name: 'chainId', type: 'uint256' },
+    { name: 'verifyingContract', type: 'address' }
+  ]
+}
+```
+- AllowedFee
+```
+{
+  AllowedFee: [
+        { name: 'gasTank', type: 'address' },
+        { name: 'token', type: 'address' },
+        { name: 'maxFee', type: 'uint256' },
+        { name: 'nonce', type: 'uint16' }
+    ]
+}
+```
+## Setting a Delegate
+In order to authorize a non-owner to use a GasTank (a Safe) to pay for transaction of a different Safe, the non-owner account must be set as a `delegate` of the GasTank and indicate which token this new delegate is allowed to use.
+
+For this the following steps should be followed:
+1. Enable the **GasTankModule** on the GasTank.
+2. Call the `GasTankModule.addDelegate(address _delegate)` from GasTank.
+3. Call the `GasTankModule.addTokenAllowance(address _delegate, address _token)` from the GasTank, for each token the given delegate is allowed to use
 
 ## Development
 
