@@ -69,6 +69,7 @@ jobs:
   test:
     needs: ["lint", "build"]
     runs-on: "ubuntu-latest"
+    environment: test
     steps:
       - name: "Check out the repo"
         uses: "actions/checkout@v3"
@@ -98,7 +99,7 @@ jobs:
           echo "NUMBER variable : ${{ vars.MAINNET_FORK_NUMBER }}"
 
       - name: "Run the tests"
-        run: "pnpm forge test -vv --fork-url $MAINNET_RPC_URL --fork-block-number $MAINNET_FORK_NUMBER"
+        run: "pnpm forge test -vv --fork-url ${{ vars.MAINNET_RPC_URL }} --fork-block-number ${{ vars.MAINNET_FORK_NUMBER }}"
 
       - name: "Add test summary"
         run: |
