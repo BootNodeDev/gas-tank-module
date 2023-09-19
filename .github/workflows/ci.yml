@@ -3,8 +3,6 @@ name: "CI"
 env:
   API_KEY_ALCHEMY: ${{ secrets.API_KEY_ALCHEMY }}
   FOUNDRY_PROFILE: "ci"
-  MAINNET_RPC_URL: ${{ vars.MAINNET_RPC_URL }}
-  MAINNET_FORK_NUMBER: ${{ vars.MAINNET_FORK_NUMBER }}
 
 on:
   workflow_dispatch:
@@ -21,7 +19,6 @@ jobs:
         uses: "actions/checkout@v3"
         with:
           submodules: "recursive"
-
       - name: "Install Foundry"
         uses: "foundry-rs/foundry-toolchain@v1"
 
@@ -70,6 +67,7 @@ jobs:
     needs: ["lint", "build"]
     runs-on: "ubuntu-latest"
     environment: test
+
     steps:
       - name: "Check out the repo"
         uses: "actions/checkout@v3"
@@ -93,15 +91,12 @@ jobs:
       - name: "Show the Foundry config"
         run: "forge config"
 
-      - name: Use variables
-        run: |
-          echo "RPC variable : ${{ vars.MAINNET_RPC_URL }}"
-          echo "NUMBER variable : ${{ vars.MAINNET_FORK_NUMBER }}"
-
       - name: "Run the tests"
-        run:
-          "pnpm forge test -vv --fork-url ${{ vars.MAINNET_RPC_URL }} --fork-block-number ${{ vars.MAINNET_FORK_NUMBER
-          }}"
+        run: "pnpm forge test"
+        env:
+          MAINNET_RPC_URL: ${{ vars.MAINNET_RPC_URL }}
+          MAINNET_FORK_NUMBER: ${{ vars.MAINNET_FORK_NUMBER }}
+          API_KEY_ETHERSCAN: ${{ vars.API_KEY_ETHERSCAN }}
 
       - name: "Add test summary"
         run: |
