@@ -93,9 +93,9 @@ jobs:
         run: "forge config"
 
       - name: Use variables
-      run: |
-        echo "RPC variable : ${{ vars.MAINNET_RPC_URL }}"
-        echo "NUMBER variable : ${{ vars.MAINNET_FORK_NUMBER }}"
+        run: |
+          echo "RPC variable : ${{ vars.MAINNET_RPC_URL }}"
+          echo "NUMBER variable : ${{ vars.MAINNET_FORK_NUMBER }}"
 
       - name: "Run the tests"
         run: "pnpm forge test -vv --fork-url $MAINNET_RPC_URL --fork-block-number $MAINNET_FORK_NUMBER"
