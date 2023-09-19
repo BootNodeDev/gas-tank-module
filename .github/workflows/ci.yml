@@ -89,14 +89,11 @@ jobs:
           cache: "pnpm"
           node-version: "lts/*"
 
-      - name: "Install the Node.js dependencies"
-        run: "pnpm install"
-
       - name: "Show the Foundry config"
         run: "forge config"
 
       - name: "Run the tests"
-        run: "pnpm test"
+        run: "pnpm test:mainnet"
 
       - name: "Add test summary"
         run: |
