@@ -1,19 +1,11 @@
 # GasTank Module
 
-<<<<<<< HEAD
-The **GasTank Module*** enables the execution of transactions within a Safe without the user having to pay for the gas required for execution. To achieve this, the contract offers two key functionalities:
-
-1. **Transaction Execution:** The **GasTank Module*** facilitates the execution of transactions within a specific Safe. These transactions are initiated using the Gelato relayer, allowing them to be executed without the user being burdened with gas costs.
-
-2. **Gelato Fee Payment:** To cover the fees charged by Gelato for its relayer service, the **GasTank Module*** retrieves the necessary tokens from a Safe designated as the "GasTank". This can be either the same Safe from which the transaction is executed or a different Safe where the **GasTank Module*** acts as a module.
-=======
-The GasTank Module eliminates the need for a user to hold gas tokens in their EOAs, which is required for executing a transaction. 
+The GasTank Module eliminates the need for a user to hold gas tokens in their EOAs, which is required for executing a transaction.
 To achieve this goal, the Module offers the following two key functionalities:
 
 1. **Transaction Execution:** The GasTank Module facilitates the execution of transactions within a specific Safe. These transactions are initiated using the [pGelato Network relayer](https://www.gelato.network/relay), allowing them to be executed without the user being burdened with gas requirements.
 
 2. **Gelato Fee Payment:** To cover the Gelato Network relaying services fees, the GasTank Module retrieves the necessary tokens from a Safe designated as the "GasTank". Depending on the organization's setup, it could either be the Safe where the transaction originated or an external Safe (Use case: one GasTank to pay for many Safe's fees).
->>>>>>> 2f7f87f (Update README.md)
 
 There are two options to pay for the Relaying fee, depending on where the GasTank is located:
 
@@ -21,11 +13,7 @@ There are two options to pay for the Relaying fee, depending on where the GasTan
 
 - **Option 2: a different Safe** The user must be added as a delegate or owner of the GasTank and authorize fee payment.
 
-<<<<<<< HEAD
-In summary, the **GasTank Module*** provides a solution for covering gas costs associated with transactions within a Safe by getting the tokens to pay for Gelato's relayer service fees from a GasTank. It offers flexibility by allowing the GasTank to be either the same Safe used for execution or a different one, as long as the user meets the authorization requirements.
-=======
 To put it simply, the GasTank Module addresses the gas expenses incurred during the execution of transactions within a Safe by utilizing tokens to cover Gelato's relayer service fees. It provides users with the option to use the same Safe for execution or a different one, as long as they meet the authorization requirements, thus offering flexibility.
->>>>>>> 2f7f87f (Update README.md)
 
 The Smart Contract is designed as a singleton, which means that it can be shared between different Safes, eliminating the need for each Safe to deploy its own module.
 
@@ -63,13 +51,8 @@ To authenticate the sender and validate the authorization to pay the fees, two s
 ## Setting a Delegate
 To authorize a non-owner to use a GasTank (a Safe) to pay for the transaction of a different Safe, the non-owner account must be set as a `delegate` of the GasTank and indicate which token this new delegate is allowed to use.
 
-<<<<<<< HEAD
-For this the following steps should be followed:
-1. Enable the **GasTank Module** on the GasTank.
-=======
 For this, the following steps should be followed:
 1. Enable the **GasTankModule** on the GasTank.
->>>>>>> 2f7f87f (Update README.md)
 2. Call the `GasTankModule.addDelegate(address _delegate)` from GasTank.
 3. Call the `GasTankModule.addTokenAllowance(address _delegate, address _token)` from the GasTank for each token the given delegate is allowed to use
 
