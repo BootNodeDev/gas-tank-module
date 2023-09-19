@@ -4,7 +4,7 @@ The GasTank Module eliminates the need for a user to hold gas tokens in their EO
 transaction. To achieve this goal, the Module offers the following two key functionalities:
 
 1. **Transaction Execution:** The GasTank Module facilitates the execution of transactions within a specific Safe. These
-   transactions are initiated using the [pGelato Network relayer](https://www.gelato.network/relay), allowing them to be
+   transactions are initiated using the [Gelato Network relayer](https://www.gelato.network/relay), allowing them to be
    executed without the user being burdened with gas requirements.
 
 2. **Gelato Fee Payment:** To cover the Gelato Network relaying services fees, the GasTank Module retrieves the
