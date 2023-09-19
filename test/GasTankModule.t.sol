@@ -73,10 +73,10 @@ contract GasTankModuleTest is PRBTest, StdCheats {
     uint256 constant DAI_FEE = 100_000_000_000_000_000;
 
     // Safe 1.4.1
-    address public gnosisSafeTemplate = 0x41675C099F32341bf84BFc5382aF534df5C7461a; // G:9134480, M:17487000
-    address public compatibilityFallbackHandler = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99; // G:9134477, M:17486892
-    SafeProxyFactory public gnosisSafeProxyFactory = SafeProxyFactory(0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67); // G:8681525,
-        // M:17440707
+    address public gnosisSafeTemplate = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
+    address public compatibilityFallbackHandler = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
+    SafeProxyFactory public gnosisSafeProxyFactory = SafeProxyFactory(0x4e1DCf7AD4e460CfD30791CCC4F9c8a4f820ec67);
+    // M:17440707
 
     address public safeProxy;
     Safe public theSafe;

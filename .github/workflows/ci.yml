@@ -19,7 +19,6 @@ jobs:
         uses: "actions/checkout@v3"
         with:
           submodules: "recursive"
-
       - name: "Install Foundry"
         uses: "foundry-rs/foundry-toolchain@v1"
 
@@ -67,6 +66,8 @@ jobs:
   test:
     needs: ["lint", "build"]
     runs-on: "ubuntu-latest"
+    environment: test
+
     steps:
       - name: "Check out the repo"
         uses: "actions/checkout@v3"
@@ -76,17 +77,26 @@ jobs:
       - name: "Install Foundry"
         uses: "foundry-rs/foundry-toolchain@v1"
 
+      - name: "Install Pnpm"
+        uses: "pnpm/action-setup@v2"
+        with:
+          version: "8"
+
+      - name: "Install Node.js"
+        uses: "actions/setup-node@v3"
+        with:
+          cache: "pnpm"
+          node-version: "lts/*"
+
       - name: "Show the Foundry config"
         run: "forge config"
 
-      - name: "Generate a fuzz seed that changes weekly to avoid burning through RPC allowance"
-        run: >
-          echo "FOUNDRY_FUZZ_SEED=$(
-            echo $(($EPOCHSECONDS - $EPOCHSECONDS % 604800))
-          )" >> $GITHUB_ENV
-
       - name: "Run the tests"
-        run: "forge test"
+        run: "pnpm test:mainnet"
+        env:
+          MAINNET_RPC_URL: ${{ vars.MAINNET_RPC_URL }}
+          MAINNET_FORK_NUMBER: ${{ vars.MAINNET_FORK_NUMBER }}
+          API_KEY_ETHERSCAN: ${{ vars.API_KEY_ETHERSCAN }}
 
       - name: "Add test summary"
         run: |
