@@ -92,7 +92,7 @@ jobs:
         run: "forge config"
 
       - name: "Run the tests"
-        run: "pnpm forge test"
+        run: "pnpm test:mainnet"
         env:
           MAINNET_RPC_URL: ${{ vars.MAINNET_RPC_URL }}
           MAINNET_FORK_NUMBER: ${{ vars.MAINNET_FORK_NUMBER }}
