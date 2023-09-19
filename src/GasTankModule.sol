@@ -45,7 +45,6 @@ contract GasTankModule is SafeStorage, Ownable, GelatoRelayContextERC2771 {
     bytes32 public constant ALLOWED_FEE_TYPEHASH =
         keccak256("AllowedFee(address gasTank,address token,uint256 maxFee,uint16 nonce)");
 
-
     /// 100% = 100_000 | 10% = 10_000 | 1% = 1_000 | 0.1% = 100 | 0.01% = 10
     uint24 public adminFeePercentage;
 
